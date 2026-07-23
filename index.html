@@ -7,6 +7,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js"></script>
 <style>
 :root{
   --ink:#16202e;--ink2:#2b3a4d;--paper:#f6f5f1;--card:#fffefb;--line:#dcd8ce;
@@ -411,6 +412,10 @@ td.hsin input.blank{background:var(--amberbg)}
     <div id="batchAuthMsg" style="display:none;font-size:12.5px;color:var(--amber)">로그인해야 차수를 저장·불러올 수 있어요.</div>
     <div class="fld"><label>현재 차수</label>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span id="batchCur" style="font-size:13px;font-weight:600">저장 안 됨 (새 작업)</span><button class="btn pri" id="batchSaveCur">현재 차수 저장</button></div></div>
+    <div class="fld" id="batchFilesBox" style="display:none"><label>이 차수의 파일 (박스라벨 PDF · 팔레트 PDF · CIPL 엑셀)</label>
+      <button class="btn pri" id="batchGenFiles">이 차수로 파일 저장 (PDF·엑셀 생성)</button>
+      <div id="batchFilesList" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
+      <div style="font-size:11px;color:var(--mut);margin-top:4px">현재 박스쉬핑·팔레트·CIPL 화면 내용으로 파일을 만들어 이 차수 폴더에 저장합니다.</div></div>
     <div class="fld"><label>새 차수로 저장</label>
       <div style="display:flex;gap:8px"><input class="mono" id="batchNewName" placeholder="예: 대만 2차" style="flex:1"><button class="btn" id="batchCreate">새 차수로 저장</button></div>
       <div style="font-size:11px;color:var(--mut);margin-top:4px">지금 박스쉬핑·팔레트·CIPL 작업을 이 이름으로 저장합니다. (마스터DB 상품은 별개·공용)</div></div>
@@ -501,7 +506,7 @@ function batchApply(data){batchApplying=true;try{
 function mirrorLocal(){try{localStorage.setItem('scm_batch_work',JSON.stringify({activeBatch,data:batchSnapshot()}));}catch(e){}}
 function batchTouch(){if(batchApplying)return;mirrorLocal();if(activeBatch&&sbClient&&sbUser){clearTimeout(batchT);batchT=setTimeout(batchUpdate,900);}}
 function restoreLocalWork(){try{const raw=localStorage.getItem('scm_batch_work');if(!raw)return;const o=JSON.parse(raw);if(o&&o.data){batchApply(o.data);activeBatch=o.activeBatch||null;updateBatchBtn();}}catch(e){}}
-function updateBatchBtn(){const el=$('batchName');if(el)el.textContent=activeBatch?activeBatch.name:'차수';const c=$('batchCur');if(c)c.textContent=activeBatch?activeBatch.name:'저장 안 됨 (새 작업)';}
+function updateBatchBtn(){const el=$('batchName');if(el)el.textContent=activeBatch?activeBatch.name:'차수';const c=$('batchCur');if(c)c.textContent=activeBatch?activeBatch.name:'저장 안 됨 (새 작업)';const fb=$('batchFilesBox');if(fb)fb.style.display=activeBatch?'':'none';}
 function setBatchStatus(t){const el=$('batchStatus');if(el)el.textContent=t;}
 async function batchList(){const el=$('batchList');if(!el)return;
   if(!(sbClient&&sbUser)){el.innerHTML='<div style="font-size:12px;color:var(--mut)">로그인 후 목록을 볼 수 있어요.</div>';return;}
@@ -516,7 +521,7 @@ async function batchList(){const el=$('batchList');if(!el)return;
 async function batchCreate(){if(!(sbClient&&sbUser)){toast('로그인 후 사용하세요');return;}const name=($('batchNewName').value||'').trim();if(!name){toast('차수 이름을 입력하세요');return;}
   setBatchStatus('저장 중…');const {data,error}=await sbClient.from('shipments').insert({name,data:batchSnapshot()}).select('id,name').single();
   if(error){setBatchStatus('저장 실패: '+error.message);toast('저장 실패');return;}
-  activeBatch={id:data.id,name:data.name};$('batchNewName').value='';updateBatchBtn();mirrorLocal();setBatchStatus('저장됨: '+data.name);toast('새 차수 저장됨');batchList();}
+  activeBatch={id:data.id,name:data.name};$('batchNewName').value='';updateBatchBtn();mirrorLocal();setBatchStatus('저장됨: '+data.name);toast('새 차수 저장됨');batchList();batchFiles();}
 async function batchUpdate(){if(!(activeBatch&&sbClient&&sbUser))return;
   const {error}=await sbClient.from('shipments').update({data:batchSnapshot(),updated_at:new Date().toISOString()}).eq('id',activeBatch.id);
   if(error){setBatchStatus('동기화 실패: '+error.message);}else{setBatchStatus('저장됨 '+new Date().toLocaleTimeString());}}
@@ -524,13 +529,48 @@ async function batchSaveCur(){if(!activeBatch){toast('먼저 새 차수로 저�
 async function batchOpen(id){if(!(sbClient&&sbUser))return;setBatchStatus('불러오는 중…');
   const {data,error}=await sbClient.from('shipments').select('name,data').eq('id',id).single();
   if(error){setBatchStatus('열기 실패: '+error.message);toast('열기 실패');return;}
-  batchApply(data.data||{});activeBatch={id:id,name:data.name};updateBatchBtn();mirrorLocal();setBatchStatus('열림: '+data.name);toast('차수 열림: '+data.name);batchList();}
+  batchApply(data.data||{});activeBatch={id:id,name:data.name};updateBatchBtn();mirrorLocal();setBatchStatus('열림: '+data.name);toast('차수 열림: '+data.name);batchList();batchFiles();}
 async function batchRename(id,cur){const name=(prompt('새 차수 이름',cur)||'').trim();if(!name||name===cur)return;
   const {error}=await sbClient.from('shipments').update({name:name}).eq('id',id);
   if(error){toast('이름변경 실패');return;}if(activeBatch&&activeBatch.id===id){activeBatch.name=name;updateBatchBtn();mirrorLocal();}toast('이름 변경됨');batchList();}
 async function batchDelete(id,name){if(!confirm('"'+name+'" 차수를 삭제할까요? (되돌릴 수 없음)'))return;
   const {error}=await sbClient.from('shipments').delete().eq('id',id);
   if(error){toast('삭제 실패');return;}if(activeBatch&&activeBatch.id===id){activeBatch=null;updateBatchBtn();mirrorLocal();}toast('삭제됨');batchList();}
+// ===== 차수 파일 아카이브 (Supabase Storage) =====
+const SHIP_BUCKET='shipments';
+const FILE_LABELS={'box-label.pdf':'박스라벨 (PDF)','pallet-mark.pdf':'팔레트 마크 (PDF)','cipl.xlsx':'CIPL (Excel)'};
+async function pdfBlobFromEl(srcEl,orientation,widthPx){
+  const holder=document.createElement('div');
+  holder.style.cssText='position:fixed;left:-100000px;top:0;background:#ffffff;padding:8px;width:'+widthPx+'px;z-index:-1';
+  holder.appendChild(srcEl.cloneNode(true));document.body.appendChild(holder);
+  try{return await html2pdf().set({margin:6,image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,backgroundColor:'#ffffff',useCORS:true},jsPDF:{unit:'mm',format:'a4',orientation:orientation},pagebreak:{mode:['css','avoid-all']}}).from(holder).outputPdf('blob');}
+  finally{document.body.removeChild(holder);}
+}
+async function genBatchFiles(){
+  if(!activeBatch){toast('먼저 차수를 저장/열어주세요');return;}
+  if(!(sbClient&&sbUser)){toast('로그인 후 사용하세요');return;}
+  if(typeof html2pdf==='undefined'){toast('PDF 라이브러리 로드 실패 — 인터넷 확인');return;}
+  setBatchStatus('파일 생성 중… (잠시 걸려요)');
+  const up=async(name,blob,ct)=>{const {error}=await sbClient.storage.from(SHIP_BUCKET).upload(activeBatch.id+'/'+name,blob,{upsert:true,contentType:ct});if(error)throw error;};
+  try{
+    if(state.boxItems.length){const b=await pdfBlobFromEl($('boxLabels'),'portrait',794);await up('box-label.pdf',b,'application/pdf');}
+    if(state.pallets.length){const b=await pdfBlobFromEl($('palletMarks'),'landscape',1123);await up('pallet-mark.pdf',b,'application/pdf');}
+    if(state.cipl.items.length){const arr=XLSX.write(ciplWorkbook(),{bookType:'xlsx',type:'array'});await up('cipl.xlsx',new Blob([arr],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');}
+    setBatchStatus('파일 저장 완료 '+new Date().toLocaleTimeString());toast('차수 파일 저장 완료');batchFiles();
+  }catch(e){setBatchStatus('파일 저장 실패: '+(e.message||e));toast('파일 저장 실패');}
+}
+async function batchFiles(){const el=$('batchFilesList');if(!el)return;
+  if(!activeBatch||!(sbClient&&sbUser)){el.innerHTML='';return;}
+  const {data,error}=await sbClient.storage.from(SHIP_BUCKET).list(activeBatch.id,{limit:100});
+  if(error){el.innerHTML='<div style="font-size:12px;color:#b3261e">파일 목록 오류: '+error.message+'</div>';return;}
+  const files=(data||[]).filter(f=>f.name&&f.id!==null);
+  if(!files.length){el.innerHTML='<div style="font-size:12px;color:var(--mut)">아직 저장된 파일이 없어요. 위 버튼으로 저장하세요.</div>';return;}
+  el.innerHTML=files.map(f=>'<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:8px 10px"><div style="min-width:0"><div style="font-weight:500;font-size:13px">'+(FILE_LABELS[f.name]||f.name)+'</div><div style="font-size:11px;color:var(--mut)">'+f.name+'</div></div><div style="display:flex;gap:6px;flex-shrink:0"><button class="btn" data-fopen="'+f.name+'">열기</button><button class="btn gho dgr" data-fdel="'+f.name+'">삭제</button></div></div>').join('');
+  el.querySelectorAll('[data-fopen]').forEach(b=>b.onclick=()=>batchFileOpen(b.dataset.fopen));
+  el.querySelectorAll('[data-fdel]').forEach(b=>b.onclick=()=>batchFileDelete(b.dataset.fdel));
+}
+async function batchFileOpen(name){const {data,error}=await sbClient.storage.from(SHIP_BUCKET).createSignedUrl(activeBatch.id+'/'+name,120);if(error){toast('열기 실패');return;}window.open(data.signedUrl,'_blank');}
+async function batchFileDelete(name){if(!confirm((FILE_LABELS[name]||name)+' 파일을 삭제할까요?'))return;const {error}=await sbClient.storage.from(SHIP_BUCKET).remove([activeBatch.id+'/'+name]);if(error){toast('삭제 실패');return;}toast('삭제됨');batchFiles();}
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),1900);}
 function eanValid(s){if(!/^\d{13}$/.test(s))return false;let sum=0;for(let i=0;i<12;i++)sum+=(+s[i])*(i%2?3:1);return (10-(sum%10))%10===+s[12];}
 function cbm(b){if(b&&b.w&&b.d&&b.h)return (b.w*b.d*b.h)/1e9;return null;}
@@ -1016,15 +1056,17 @@ function ciplImportPL(file){
     toast(items.length+'개 가져옴'+(um?(' · 미매칭 '+um+'건'):' · 전부 매칭'));
   }catch(err){console.error(err);toast('파싱 오류: '+err.message);}};
   rd.readAsArrayBuffer(file);}
-function ciplExport(){
-  if(!state.cipl.items.length){toast('품목이 없습니다');return;}
-  const h=state.cipl.hdr;
+function ciplWorkbook(){
   const ci=state.cipl.items.map(it=>{const p=DB.find(x=>x.code===it.code)||{};return {'BRAND':p.brandLabel||'','Description of Goods':ciplName(it),"Q'ty":+it.qty||0,'Unit Price':it.price!==''?+it.price:'','Amount':((+it.qty||0)*(+it.price||0))||''};});
   const pl=state.cipl.items.map(it=>{const p=DB.find(x=>x.code===it.code)||{};return {'PALLET No':it.plt||'','BRAND':p.brandLabel||'','PRODUCT CODE':it.code,'BARCODE':p.ean||'','PRODUCT NAME':ciplName(it),'HS CODE':it.hs||'','QTY':+it.qty||0,'PIECE PER CTN':it.ctn||'',"Q'TY per CTN":it.upc||'','CBM':it.cbm||'','Net-weight(KG)':it.nw||'','Gross-weight(KG)':it.gw||'','EXPIRATION':it.expiry||''};});
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ci),'CI');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(pl),'PL');
-  XLSX.writeFile(wb,'CIPL_'+(h.invNo||new Date().toISOString().slice(0,10))+'.xlsx');toast('CIPL xlsx 내보내기 완료');}
+  return wb;}
+function ciplExport(){
+  if(!state.cipl.items.length){toast('품목이 없습니다');return;}
+  const h=state.cipl.hdr;
+  XLSX.writeFile(ciplWorkbook(),'CIPL_'+(h.invNo||new Date().toISOString().slice(0,10))+'.xlsx');toast('CIPL xlsx 내보내기 완료');}
 function printCipl(){let st=document.getElementById('printoff');if(!st){st=document.createElement('style');st.id='printoff';document.head.appendChild(st);}st.textContent='@media print{@page{size:A4 portrait;margin:10mm}}';document.body.classList.add('pc');window.print();}
 function renderCipl(){renderCiplItems();renderCiplTotals();renderCiplPreview();batchTouch();}
 
@@ -1106,7 +1148,8 @@ $('authPw')&&$('authPw').addEventListener('keydown',e=>{if(e.key==='Enter')doLog
 load();refresh();
 sbInit();bindAuth();reflectAuth();
 // ===== 차수 UI 배선 =====
-$('btnBatch').onclick=()=>{updateBatchBtn();const m=$('batchAuthMsg');if(m)m.style.display=(sbUser?'none':'');setBatchStatus(sbUser?'-':'로그인 필요');batchList();$('ovBatch').classList.add('on');};
+$('btnBatch').onclick=()=>{updateBatchBtn();const m=$('batchAuthMsg');if(m)m.style.display=(sbUser?'none':'');setBatchStatus(sbUser?'-':'로그인 필요');batchList();batchFiles();$('ovBatch').classList.add('on');};
+$('batchGenFiles')&&($('batchGenFiles').onclick=genBatchFiles);
 $('batchX').onclick=()=>$('ovBatch').classList.remove('on');
 $('ovBatch').onclick=e=>{if(e.target.id==='ovBatch')$('ovBatch').classList.remove('on');};
 $('batchSaveCur').onclick=batchSaveCur;
