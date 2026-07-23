@@ -223,6 +223,7 @@ td.hsin input.blank{background:var(--amberbg)}
   <div class="hwrap">
     <div class="brand"><div class="mark">SCM</div>
       <div style="flex:1"><h1>수출 물류서류 어드민</h1><div class="sub">Melable · Lusolve — Export Docs Console</div></div>
+      <button id="btnBatch" class="sbbtn">📁 <span id="batchName">차수</span></button>
       <button id="btnSettings" class="sbbtn"><span id="sbDot" class="sbdot off"></span>클라우드</button>
     </div>
     <nav id="nav">
@@ -404,6 +405,20 @@ td.hsin input.blank{background:var(--amberbg)}
     <div style="display:flex;gap:8px"><button class="btn" id="sbCopyCode">연결 코드 복사</button><button class="btn" id="sbPull">클라우드에서 불러오기</button><button class="btn" id="sbPush">지금 업로드</button><button class="btn pri" id="sbConnect">저장 &amp; 연결</button></div>
   </div>
 </div></div>
+<div class="ov" id="ovBatch"><div class="modal" style="max-width:560px">
+  <div class="mhead"><h2>차수 관리 · 박스/팔레트/CIPL 저장</h2><button class="icon" id="batchX">✕</button></div>
+  <div class="mbody" style="grid-template-columns:1fr">
+    <div id="batchAuthMsg" style="display:none;font-size:12.5px;color:var(--amber)">로그인해야 차수를 저장·불러올 수 있어요.</div>
+    <div class="fld"><label>현재 차수</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span id="batchCur" style="font-size:13px;font-weight:600">저장 안 됨 (새 작업)</span><button class="btn pri" id="batchSaveCur">현재 차수 저장</button></div></div>
+    <div class="fld"><label>새 차수로 저장</label>
+      <div style="display:flex;gap:8px"><input class="mono" id="batchNewName" placeholder="예: 대만 2차" style="flex:1"><button class="btn" id="batchCreate">새 차수로 저장</button></div>
+      <div style="font-size:11px;color:var(--mut);margin-top:4px">지금 박스쉬핑·팔레트·CIPL 작업을 이 이름으로 저장합니다. (마스터DB 상품은 별개·공용)</div></div>
+    <div class="fld"><label>저장된 차수 목록</label>
+      <div id="batchList" style="display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto"></div></div>
+    <div style="font-size:12.5px;color:var(--ink2)">상태: <b id="batchStatus">-</b></div>
+  </div>
+</div></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -470,6 +485,52 @@ async function cloudLoad(){
     return true;
   }catch(e){setSbStatus('오류: '+(e.message||e));return false;}
 }
+// ===== 차수(shipment batch) 관리 =====
+let activeBatch=null, batchApplying=false, batchT=null;
+function batchSnapshot(){return JSON.parse(JSON.stringify({boxItems:state.boxItems,pallet:state.pallet,pallets:state.pallets,cipl:state.cipl}));}
+function fillCiplHeaderInputs(){const h=state.cipl.hdr;const map={'c-invno':'invNo','c-invdate':'invDate','c-consignee':'consignee','c-notify':'notify','c-incoterms':'incoterms','c-pol':'pol','c-destname':'dest','c-carrier':'carrier','c-sailing':'sailing','c-lc':'lc','c-lcbank':'lcbank','c-cur':'currency','c-shipper':'shipper'};Object.entries(map).forEach(([id,k])=>{const el=$(id);if(el)el.value=h[k]||'';});const d=$('c-dest');if(d)d.value=h.destCountry;const cs=$('c-consignee-sel');if(cs)cs.value=h.destCountry;}
+function fillPalletHeaderInputs(){const p=state.pallet;const m={'f-consignor':'consignor','f-consignee':'consignee','f-po':'po','f-item':'item'};Object.entries(m).forEach(([id,k])=>{const el=$(id);if(el)el.value=p[k]||'';});}
+function batchApply(data){batchApplying=true;try{
+  state.boxItems=Array.isArray(data.boxItems)?data.boxItems:[];
+  if(data.pallet)state.pallet=data.pallet;
+  state.pallets=(Array.isArray(data.pallets)&&data.pallets.length)?data.pallets:[{weight:''}];
+  if(data.cipl)state.cipl=data.cipl;
+  fillPalletHeaderInputs();fillCiplHeaderInputs();
+  renderBox();renderPallet();renderCipl();
+}finally{batchApplying=false;}}
+function mirrorLocal(){try{localStorage.setItem('scm_batch_work',JSON.stringify({activeBatch,data:batchSnapshot()}));}catch(e){}}
+function batchTouch(){if(batchApplying)return;mirrorLocal();if(activeBatch&&sbClient&&sbUser){clearTimeout(batchT);batchT=setTimeout(batchUpdate,900);}}
+function restoreLocalWork(){try{const raw=localStorage.getItem('scm_batch_work');if(!raw)return;const o=JSON.parse(raw);if(o&&o.data){batchApply(o.data);activeBatch=o.activeBatch||null;updateBatchBtn();}}catch(e){}}
+function updateBatchBtn(){const el=$('batchName');if(el)el.textContent=activeBatch?activeBatch.name:'차수';const c=$('batchCur');if(c)c.textContent=activeBatch?activeBatch.name:'저장 안 됨 (새 작업)';}
+function setBatchStatus(t){const el=$('batchStatus');if(el)el.textContent=t;}
+async function batchList(){const el=$('batchList');if(!el)return;
+  if(!(sbClient&&sbUser)){el.innerHTML='<div style="font-size:12px;color:var(--mut)">로그인 후 목록을 볼 수 있어요.</div>';return;}
+  const {data,error}=await sbClient.from('shipments').select('id,name,updated_at').order('updated_at',{ascending:false});
+  if(error){el.innerHTML='<div style="font-size:12px;color:#b3261e">목록 오류: '+error.message+'</div>';return;}
+  if(!data||!data.length){el.innerHTML='<div style="font-size:12px;color:var(--mut)">저장된 차수가 없습니다.</div>';return;}
+  el.innerHTML=data.map(r=>'<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:8px 10px"><div style="min-width:0"><div style="font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r.name+((activeBatch&&activeBatch.id===r.id)?' <span style=\'color:var(--mut);font-size:11px\'>(열림)</span>':'')+'</div><div style="font-size:11px;color:var(--mut)">'+new Date(r.updated_at).toLocaleString()+'</div></div><div style="display:flex;gap:6px;flex-shrink:0"><button class="btn" data-bopen="'+r.id+'">열기</button><button class="btn" data-brename="'+r.id+'" data-bname="'+encodeURIComponent(r.name)+'">이름변경</button><button class="btn gho dgr" data-bdel="'+r.id+'" data-bname="'+encodeURIComponent(r.name)+'">삭제</button></div></div>').join('');
+  el.querySelectorAll('[data-bopen]').forEach(b=>b.onclick=()=>batchOpen(b.dataset.bopen));
+  el.querySelectorAll('[data-brename]').forEach(b=>b.onclick=()=>batchRename(b.dataset.brename,decodeURIComponent(b.dataset.bname)));
+  el.querySelectorAll('[data-bdel]').forEach(b=>b.onclick=()=>batchDelete(b.dataset.bdel,decodeURIComponent(b.dataset.bname)));
+}
+async function batchCreate(){if(!(sbClient&&sbUser)){toast('로그인 후 사용하세요');return;}const name=($('batchNewName').value||'').trim();if(!name){toast('차수 이름을 입력하세요');return;}
+  setBatchStatus('저장 중…');const {data,error}=await sbClient.from('shipments').insert({name,data:batchSnapshot()}).select('id,name').single();
+  if(error){setBatchStatus('저장 실패: '+error.message);toast('저장 실패');return;}
+  activeBatch={id:data.id,name:data.name};$('batchNewName').value='';updateBatchBtn();mirrorLocal();setBatchStatus('저장됨: '+data.name);toast('새 차수 저장됨');batchList();}
+async function batchUpdate(){if(!(activeBatch&&sbClient&&sbUser))return;
+  const {error}=await sbClient.from('shipments').update({data:batchSnapshot(),updated_at:new Date().toISOString()}).eq('id',activeBatch.id);
+  if(error){setBatchStatus('동기화 실패: '+error.message);}else{setBatchStatus('저장됨 '+new Date().toLocaleTimeString());}}
+async function batchSaveCur(){if(!activeBatch){toast('먼저 새 차수로 저장하세요');return;}setBatchStatus('저장 중…');await batchUpdate();toast('저장 완료');}
+async function batchOpen(id){if(!(sbClient&&sbUser))return;setBatchStatus('불러오는 중…');
+  const {data,error}=await sbClient.from('shipments').select('name,data').eq('id',id).single();
+  if(error){setBatchStatus('열기 실패: '+error.message);toast('열기 실패');return;}
+  batchApply(data.data||{});activeBatch={id:id,name:data.name};updateBatchBtn();mirrorLocal();setBatchStatus('열림: '+data.name);toast('차수 열림: '+data.name);batchList();}
+async function batchRename(id,cur){const name=(prompt('새 차수 이름',cur)||'').trim();if(!name||name===cur)return;
+  const {error}=await sbClient.from('shipments').update({name:name}).eq('id',id);
+  if(error){toast('이름변경 실패');return;}if(activeBatch&&activeBatch.id===id){activeBatch.name=name;updateBatchBtn();mirrorLocal();}toast('이름 변경됨');batchList();}
+async function batchDelete(id,name){if(!confirm('"'+name+'" 차수를 삭제할까요? (되돌릴 수 없음)'))return;
+  const {error}=await sbClient.from('shipments').delete().eq('id',id);
+  if(error){toast('삭제 실패');return;}if(activeBatch&&activeBatch.id===id){activeBatch=null;updateBatchBtn();mirrorLocal();}toast('삭제됨');batchList();}
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),1900);}
 function eanValid(s){if(!/^\d{13}$/.test(s))return false;let sum=0;for(let i=0;i<12;i++)sum+=(+s[i])*(i%2?3:1);return (10-(sum%10))%10===+s[12];}
 function cbm(b){if(b&&b.w&&b.d&&b.h)return (b.w*b.d*b.h)/1e9;return null;}
@@ -753,7 +814,7 @@ function renderBoxLabels(){
   wrap.innerHTML=cards.length?cards.join(''):'<div class="emptybox">상품을 추가하면 카톤 라벨이 여기 표시됩니다.</div>';
   jobs.forEach(j=>{if(!bc(j.id,j.ean)){const el=document.getElementById(j.id);if(el){el.style.display='none';const sib=el.nextElementSibling;if(sib)sib.style.display='inline';}}});
 }
-function renderBox(){renderBoxPick();renderBoxCfg();renderBoxLabels();}
+function renderBox(){renderBoxPick();renderBoxCfg();renderBoxLabels();batchTouch();}
 function boxExport(){
   if(!state.boxItems.length){toast('추가된 상품이 없습니다');return;}
   const rows=[];
@@ -801,7 +862,7 @@ function renderPalletMarks(){
   if(!total){el.innerHTML='<div class="emptybox">팔레트를 추가하면 쉬핑마크가 여기 표시됩니다.</div>';return;}
   el.innerHTML=state.pallets.map((p,i)=>markCard(h,i+1,total,p.weight)).join('');
 }
-function renderPallet(){renderPalletCfg();renderPalletMarks();}
+function renderPallet(){renderPalletCfg();renderPalletMarks();batchTouch();}
 
 /* CIPL (Commercial Invoice + Packing List) */
 function esc(s){return String(s==null?'':s);}
@@ -965,7 +1026,7 @@ function ciplExport(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(pl),'PL');
   XLSX.writeFile(wb,'CIPL_'+(h.invNo||new Date().toISOString().slice(0,10))+'.xlsx');toast('CIPL xlsx 내보내기 완료');}
 function printCipl(){let st=document.getElementById('printoff');if(!st){st=document.createElement('style');st.id='printoff';document.head.appendChild(st);}st.textContent='@media print{@page{size:A4 portrait;margin:10mm}}';document.body.classList.add('pc');window.print();}
-function renderCipl(){renderCiplItems();renderCiplTotals();renderCiplPreview();}
+function renderCipl(){renderCiplItems();renderCiplTotals();renderCiplPreview();batchTouch();}
 
 /* events */
 $('nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
@@ -1044,6 +1105,14 @@ $('authPw')&&$('authPw').addEventListener('keydown',e=>{if(e.key==='Enter')doLog
 
 load();refresh();
 sbInit();bindAuth();reflectAuth();
+// ===== 차수 UI 배선 =====
+$('btnBatch').onclick=()=>{updateBatchBtn();const m=$('batchAuthMsg');if(m)m.style.display=(sbUser?'none':'');setBatchStatus(sbUser?'-':'로그인 필요');batchList();$('ovBatch').classList.add('on');};
+$('batchX').onclick=()=>$('ovBatch').classList.remove('on');
+$('ovBatch').onclick=e=>{if(e.target.id==='ovBatch')$('ovBatch').classList.remove('on');};
+$('batchSaveCur').onclick=batchSaveCur;
+$('batchCreate').onclick=batchCreate;
+['p-box','p-pallet','p-cipl'].forEach(id=>{const el=$(id);if(el)el.addEventListener('input',batchTouch);});
+restoreLocalWork();updateBatchBtn();
 </script>
 </body>
 </html>
