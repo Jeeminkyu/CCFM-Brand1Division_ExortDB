@@ -288,12 +288,12 @@ td.hsin input.blank{background:var(--amberbg)}
   </section>
   <section class="panel" id="p-pallet">
     <div class="phdr" id="palletHdrForm">
-      <div class="fld"><label>CONSIGNOR (수출자)</label><input id="f-consignor" value="GOJISIKBIO Co. Ltd."></div>
-      <div class="fld"><label>CONSIGNEE (수하인)</label><input id="f-consignee" value="Gaozhi Biotech Co., Ltd.">
+      <div class="fld"><label>CONSIGNOR (수출자)</label><input id="f-consignor"></div>
+      <div class="fld"><label>CONSIGNEE (수하인)</label><input id="f-consignee">
         <div class="presets"><button class="btnxs" data-cons="Gaozhi Biotech Co., Ltd.">Gaozhi(대만)</button><button class="btnxs" data-cons="MELABLE HK LIMITED">MELABLE HK</button></div>
       </div>
-      <div class="fld"><label>P/O NO.</label><input class="mono" id="f-po" value="PO_886_001"></div>
-      <div class="fld"><label>ITEM</label><input id="f-item" value="COSMETICS"></div>
+      <div class="fld"><label>P/O NO.</label><input class="mono" id="f-po"><div class="presets"><button class="btnxs" data-po="PO_886_001">대만(886)</button><button class="btnxs" data-po="PO_852_001">홍콩(852)</button></div></div>
+      <div class="fld"><label>ITEM</label><input id="f-item"></div>
     </div>
     <div class="bar">
       <button class="btn pri" id="palletAdd">+ 팔레트 추가</button>
@@ -406,21 +406,26 @@ td.hsin input.blank{background:var(--amberbg)}
     <div style="display:flex;gap:8px"><button class="btn" id="sbCopyCode">연결 코드 복사</button><button class="btn" id="sbPull">클라우드에서 불러오기</button><button class="btn" id="sbPush">지금 업로드</button><button class="btn pri" id="sbConnect">저장 &amp; 연결</button></div>
   </div>
 </div></div>
-<div class="ov" id="ovBatch"><div class="modal" style="max-width:560px">
-  <div class="mhead"><h2>차수 관리 · 박스/팔레트/CIPL 저장</h2><button class="icon" id="batchX">✕</button></div>
+<div class="ov" id="ovBatch"><div class="modal" style="max-width:720px">
+  <div class="mhead"><h2>📁 차수 아카이브</h2><button class="icon" id="batchX">✕</button></div>
   <div class="mbody" style="grid-template-columns:1fr">
     <div id="batchAuthMsg" style="display:none;font-size:12.5px;color:var(--amber)">로그인해야 차수를 저장·불러올 수 있어요.</div>
-    <div class="fld"><label>현재 차수</label>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span id="batchCur" style="font-size:13px;font-weight:600">저장 안 됨 (새 작업)</span><button class="btn pri" id="batchSaveCur">현재 차수 저장</button></div></div>
-    <div class="fld" id="batchFilesBox" style="display:none"><label>이 차수의 파일 (박스라벨 PDF · 팔레트 PDF · CIPL 엑셀)</label>
-      <button class="btn pri" id="batchGenFiles">이 차수로 파일 저장 (PDF·엑셀 생성)</button>
-      <div id="batchFilesList" style="display:flex;flex-direction:column;gap:6px;margin-top:8px"></div>
-      <div style="font-size:11px;color:var(--mut);margin-top:4px">현재 박스쉬핑·팔레트·CIPL 화면 내용으로 파일을 만들어 이 차수 폴더에 저장합니다.</div></div>
-    <div class="fld"><label>새 차수로 저장</label>
-      <div style="display:flex;gap:8px"><input class="mono" id="batchNewName" placeholder="예: 대만 2차" style="flex:1"><button class="btn" id="batchCreate">새 차수로 저장</button></div>
-      <div style="font-size:11px;color:var(--mut);margin-top:4px">지금 박스쉬핑·팔레트·CIPL 작업을 이 이름으로 저장합니다. (마스터DB 상품은 별개·공용)</div></div>
-    <div class="fld"><label>저장된 차수 목록</label>
-      <div id="batchList" style="display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto"></div></div>
+    <div style="display:flex;gap:8px;align-items:center"><input class="mono" id="batchNewName" placeholder="새 차수 이름 (예: 대만 2차)" style="flex:1"><button class="btn pri" id="batchCreate">+ 새 차수</button></div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap">
+      <div style="flex:1 1 210px;min-width:190px">
+        <div style="font-size:12px;color:var(--mut);font-weight:600;margin-bottom:6px">출고 건 (차수)</div>
+        <div id="batchList" style="display:flex;flex-direction:column;gap:8px;max-height:340px;overflow:auto"></div>
+      </div>
+      <div style="flex:1.5 1 260px;min-width:240px">
+        <div style="font-size:12px;color:var(--mut);font-weight:600;margin-bottom:6px" id="batchFilesTitle">파일</div>
+        <div id="batchNoSel" style="font-size:12px;color:var(--mut)">왼쪽에서 차수를 선택하거나, 위에서 새로 만드세요.</div>
+        <div id="batchFilesBox" style="display:none">
+          <button class="btn pri" id="batchGenFiles" style="width:100%">이 차수로 파일 저장 (PDF·엑셀 생성)</button>
+          <div id="batchFilesList" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
+          <div style="font-size:11px;color:var(--mut);margin-top:6px">현재 박스쉬핑·팔레트·CIPL 화면 내용으로 파일을 만들어 이 차수에 저장합니다.</div>
+        </div>
+      </div>
+    </div>
     <div style="font-size:12.5px;color:var(--ink2)">상태: <b id="batchStatus">-</b></div>
   </div>
 </div></div>
@@ -434,8 +439,8 @@ const DEF_COUNTRIES=[{code:'TW',label:'대만(TW)'},{code:'HK',label:'홍콩(HK)
 const TW_FIX={};
 // 상품정보고시/CIPL 기준 중문 주명 + 영문명 교정 (빈값 또는 이전 추정값일 때만 덮어씀)
 const NAME_FIX={};
-let DB=[], COUNTRIES=[], state={q:'',qhs:'',brand:'all',sort:'code',dir:1,editIdx:-1,optCols:{nameEn:false,nameZh:false,maker:false,cbm:false},boxq:'',boxItems:[],pallet:{consignor:'GOJISIKBIO Co. Ltd.',consignee:'Gaozhi Biotech Co., Ltd.',po:'PO_886_001',item:'COSMETICS'},pallets:[{weight:''}],ciplq:'',cipl:{hdr:{invNo:'',invDate:'',destCountry:'TW',consignee:'Company : Gaozhi Biotech Co., Ltd.\nAddress : 11 F., No. 122, Songjiang Rd., Zhongshan Dist., Taipei City 104092, Taiwan\nName : Minkyu Jee\nMobile : 82)10.3007.3783\nE-mail : jmk@mkm20201101.com',notify:'Same as Consignee',incoterms:'DDP',pol:'BUSAN PORT',dest:'TAIWAN',carrier:'',sailing:'',lc:'',lcbank:'',currency:'USD',shipper:'Company : GOJISIKBIO Co. Ltd.\nAddress : #9-111, 428 Seolleung-ro, Gangnam-gu, Seoul, Republic of Korea'},doc:'ci',items:[]}};
-const CONSIGNEES={TW:'Company : Gaozhi Biotech Co., Ltd.\nAddress : 11 F., No. 122, Songjiang Rd., Zhongshan Dist., Taipei City 104092, Taiwan\nName : Minkyu Jee\nMobile : 82)10.3007.3783\nE-mail : jmk@mkm20201101.com',HK:'Company : MELABLE HK LIMITED\nAddress : Unit B, 17/F., United Centre, 95 Queensway, Admiralty, Hong Kong\nName : Minkyu JEE\nMobile : 82)10.6383.5936\nE-mail : jmk@mkm20201101.com'};
+let DB=[], COUNTRIES=[], state={q:'',qhs:'',brand:'all',sort:'code',dir:1,editIdx:-1,optCols:{nameEn:false,nameZh:false,maker:false,cbm:false},boxq:'',boxItems:[],pallet:{consignor:'',consignee:'',po:'',item:''},pallets:[{weight:''}],ciplq:'',cipl:{hdr:{invNo:'',invDate:'',destCountry:'TW',consignee:'',notify:'Same as Consignee',incoterms:'DDP',pol:'BUSAN PORT',dest:'TAIWAN',carrier:'',sailing:'',lc:'',lcbank:'',currency:'USD',shipper:''},doc:'ci',items:[]}};
+const CONSIGNEES={TW:'Company : Gaozhi Biotech Co., Ltd.\nAddress : 11 F., No. 122, Songjiang Rd., Zhongshan Dist., Taipei City 104092, Taiwan\n',HK:'Company : MELABLE HK LIMITED\nAddress : Unit B, 17/F., United Centre, 95 Queensway, Admiralty, Hong Kong\n'};
 const $=id=>document.getElementById(id);
 
 function normalizeDB(){
@@ -506,14 +511,14 @@ function batchApply(data){batchApplying=true;try{
 function mirrorLocal(){try{localStorage.setItem('scm_batch_work',JSON.stringify({activeBatch,data:batchSnapshot()}));}catch(e){}}
 function batchTouch(){if(batchApplying)return;mirrorLocal();if(activeBatch&&sbClient&&sbUser){clearTimeout(batchT);batchT=setTimeout(batchUpdate,900);}}
 function restoreLocalWork(){try{const raw=localStorage.getItem('scm_batch_work');if(!raw)return;const o=JSON.parse(raw);if(o&&o.data){batchApply(o.data);activeBatch=o.activeBatch||null;updateBatchBtn();}}catch(e){}}
-function updateBatchBtn(){const el=$('batchName');if(el)el.textContent=activeBatch?activeBatch.name:'차수';const c=$('batchCur');if(c)c.textContent=activeBatch?activeBatch.name:'저장 안 됨 (새 작업)';const fb=$('batchFilesBox');if(fb)fb.style.display=activeBatch?'':'none';}
+function updateBatchBtn(){const el=$('batchName');if(el)el.textContent=activeBatch?activeBatch.name:'차수';const fb=$('batchFilesBox');if(fb)fb.style.display=activeBatch?'':'none';const ns=$('batchNoSel');if(ns)ns.style.display=activeBatch?'none':'';const ft=$('batchFilesTitle');if(ft)ft.textContent=activeBatch?(activeBatch.name+' · 파일'):'파일';}
 function setBatchStatus(t){const el=$('batchStatus');if(el)el.textContent=t;}
 async function batchList(){const el=$('batchList');if(!el)return;
   if(!(sbClient&&sbUser)){el.innerHTML='<div style="font-size:12px;color:var(--mut)">로그인 후 목록을 볼 수 있어요.</div>';return;}
   const {data,error}=await sbClient.from('shipments').select('id,name,updated_at').order('updated_at',{ascending:false});
   if(error){el.innerHTML='<div style="font-size:12px;color:#b3261e">목록 오류: '+error.message+'</div>';return;}
   if(!data||!data.length){el.innerHTML='<div style="font-size:12px;color:var(--mut)">저장된 차수가 없습니다.</div>';return;}
-  el.innerHTML=data.map(r=>'<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:8px 10px"><div style="min-width:0"><div style="font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+r.name+((activeBatch&&activeBatch.id===r.id)?' <span style=\'color:var(--mut);font-size:11px\'>(열림)</span>':'')+'</div><div style="font-size:11px;color:var(--mut)">'+new Date(r.updated_at).toLocaleString()+'</div></div><div style="display:flex;gap:6px;flex-shrink:0"><button class="btn" data-bopen="'+r.id+'">열기</button><button class="btn" data-brename="'+r.id+'" data-bname="'+encodeURIComponent(r.name)+'">이름변경</button><button class="btn gho dgr" data-bdel="'+r.id+'" data-bname="'+encodeURIComponent(r.name)+'">삭제</button></div></div>').join('');
+  el.innerHTML=data.map(r=>{var on=activeBatch&&activeBatch.id===r.id;return '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:'+(on?'2px solid #1f9d6b':'1px solid var(--line)')+';border-radius:8px;padding:8px 10px"><div data-bopen="'+r.id+'" style="min-width:0;flex:1;cursor:pointer"><div style="font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📁 '+r.name+(on?' <span style=\'color:#1f9d6b;font-size:11px\'>(열림)</span>':'')+'</div><div style="font-size:11px;color:var(--mut)">'+new Date(r.updated_at).toLocaleString()+'</div></div><div style="display:flex;gap:4px;flex-shrink:0"><button class="btnxs" data-brename="'+r.id+'" data-bname="'+encodeURIComponent(r.name)+'">이름</button><button class="btnxs" data-bdel="'+r.id+'" data-bname="'+encodeURIComponent(r.name)+'">삭제</button></div></div>';}).join('');
   el.querySelectorAll('[data-bopen]').forEach(b=>b.onclick=()=>batchOpen(b.dataset.bopen));
   el.querySelectorAll('[data-brename]').forEach(b=>b.onclick=()=>batchRename(b.dataset.brename,decodeURIComponent(b.dataset.bname)));
   el.querySelectorAll('[data-bdel]').forEach(b=>b.onclick=()=>batchDelete(b.dataset.bdel,decodeURIComponent(b.dataset.bname)));
@@ -1088,7 +1093,7 @@ $('boxXlsx').onclick=boxExport;
 $('boxClear').onclick=()=>{if(state.boxItems.length&&confirm('추가한 상품을 모두 비울까요?')){state.boxItems=[];renderBox();}};
 // pallet events
 ['consignor','consignee','po','item'].forEach(k=>$('f-'+k).addEventListener('input',e=>{state.pallet[k]=e.target.value;renderPalletMarks();}));
-document.querySelectorAll('.presets [data-cons]').forEach(b=>b.onclick=()=>{$('f-consignee').value=b.dataset.cons;state.pallet.consignee=b.dataset.cons;renderPalletMarks();});
+document.querySelectorAll('.presets [data-cons]').forEach(b=>b.onclick=()=>{$('f-consignee').value=b.dataset.cons;state.pallet.consignee=b.dataset.cons;renderPalletMarks();});document.querySelectorAll('.presets [data-po]').forEach(b=>b.onclick=()=>{$('f-po').value=b.dataset.po;state.pallet.po=b.dataset.po;renderPalletMarks();});
 $('palletAdd').onclick=addPallet;
 $('palletClear').onclick=()=>{if(state.pallets.length&&confirm('팔레트를 모두 비울까요?')){state.pallets=[];renderPallet();}};
 $('palletPrint').onclick=()=>{if(!state.pallets.length){toast('추가된 팔레트가 없습니다');return;}
@@ -1152,7 +1157,7 @@ $('btnBatch').onclick=()=>{updateBatchBtn();const m=$('batchAuthMsg');if(m)m.sty
 $('batchGenFiles')&&($('batchGenFiles').onclick=genBatchFiles);
 $('batchX').onclick=()=>$('ovBatch').classList.remove('on');
 $('ovBatch').onclick=e=>{if(e.target.id==='ovBatch')$('ovBatch').classList.remove('on');};
-$('batchSaveCur').onclick=batchSaveCur;
+$('batchSaveCur')&&($('batchSaveCur').onclick=batchSaveCur);
 $('batchCreate').onclick=batchCreate;
 ['p-box','p-pallet','p-cipl'].forEach(id=>{const el=$(id);if(el)el.addEventListener('input',batchTouch);});
 restoreLocalWork();updateBatchBtn();
