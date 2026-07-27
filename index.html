@@ -278,6 +278,7 @@ td.hsin input.blank{background:var(--amberbg)}
       <label style="font-size:12px;color:var(--mut);display:flex;align-items:center;gap:5px">인쇄 위로(mm)<input id="boxOffset" type="number" step="0.1" value="0.5" style="width:62px;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono)"></label>
       <button class="btn pri" id="boxPrint">인쇄 / PDF</button>
       <button class="btn" id="boxXlsx">데이터 내보내기</button>
+      <button class="btn pri" id="boxSaveBatch">📁 차수에 저장</button>
       <button class="btn gho dgr" id="boxClear">전체 비우기</button>
     </div>
     <div class="pickrow" id="boxPick"></div>
@@ -298,6 +299,7 @@ td.hsin input.blank{background:var(--amberbg)}
     <div class="bar">
       <button class="btn pri" id="palletAdd">+ 팔레트 추가</button>
       <button class="btn" id="palletPrint">인쇄 / PDF</button>
+      <button class="btn pri" id="palletSaveBatch">📁 차수에 저장</button>
       <button class="btn gho dgr" id="palletClear">전체 비우기</button>
       <span class="ptott" id="palletTot"></span>
     </div>
@@ -334,6 +336,7 @@ td.hsin input.blank{background:var(--amberbg)}
       <button class="btn" id="ciplPrintCI">CI 인쇄/PDF</button>
       <button class="btn" id="ciplPrintPL">PL 인쇄/PDF</button>
       <button class="btn" id="ciplXlsx">데이터 xlsx</button>
+      <button class="btn pri" id="ciplSaveBatch">📁 차수에 저장</button>
       <button class="btn gho dgr" id="ciplClear">비우기</button>
     </div>
     <div class="pickrow" id="ciplPick"></div>
@@ -427,6 +430,18 @@ td.hsin input.blank{background:var(--amberbg)}
       </div>
     </div>
     <div style="font-size:12.5px;color:var(--ink2)">상태: <b id="batchStatus">-</b></div>
+  </div>
+</div></div>
+<div class="ov" id="ovSaveBatch"><div class="modal" style="max-width:440px">
+  <div class="mhead"><h2 id="sbfTitle">차수에 저장</h2><button class="icon" id="sbfX">✕</button></div>
+  <div class="mbody" style="grid-template-columns:1fr">
+    <div id="sbfAuthMsg" style="display:none;font-size:12.5px;color:var(--amber)">로그인 후 사용할 수 있어요 (헤더의 클라우드 버튼).</div>
+    <div class="fld"><label>저장할 차수</label>
+      <select class="mono" id="sbfBatch" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:8px;font-family:var(--mono)"></select></div>
+    <div class="fld" id="sbfNewNameBox" style="display:none"><label>새 차수 이름</label><input class="mono" id="sbfNewName" placeholder="예: 대만 2차"></div>
+    <div class="fld"><label>파일 이름</label><input class="mono" id="sbfFileName"><div style="font-size:11px;color:var(--mut);margin-top:4px">같은 이름이 있으면 자동으로 (2),(3)이 붙어 기존 파일을 덮어쓰지 않아요.</div></div>
+    <div style="font-size:12.5px;color:var(--ink2)">상태: <b id="sbfStatus">-</b></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn gho" id="sbfCancel">취소</button><button class="btn pri" id="sbfSave">저장</button></div>
   </div>
 </div></div>
 <div class="toast" id="toast"></div>
@@ -538,9 +553,10 @@ async function batchOpen(id){if(!(sbClient&&sbUser))return;setBatchStatus('불�
 async function batchRename(id,cur){const name=(prompt('새 차수 이름',cur)||'').trim();if(!name||name===cur)return;
   const {error}=await sbClient.from('shipments').update({name:name}).eq('id',id);
   if(error){toast('이름변경 실패');return;}if(activeBatch&&activeBatch.id===id){activeBatch.name=name;updateBatchBtn();mirrorLocal();}toast('이름 변경됨');batchList();}
-async function batchDelete(id,name){if(!confirm('"'+name+'" 차수를 삭제할까요? (되돌릴 수 없음)'))return;
+async function batchDelete(id,name){if(!confirm('"'+name+'" 차수를 삭제할까요? 폴더의 파일도 함께 삭제됩니다. (되돌릴 수 없음)'))return;
+  try{const {data}=await sbClient.storage.from(SHIP_BUCKET).list(id,{limit:200});const paths=(data||[]).filter(f=>f.id!==null).map(f=>id+'/'+f.name);if(paths.length)await sbClient.storage.from(SHIP_BUCKET).remove(paths);}catch(e){}
   const {error}=await sbClient.from('shipments').delete().eq('id',id);
-  if(error){toast('삭제 실패');return;}if(activeBatch&&activeBatch.id===id){activeBatch=null;updateBatchBtn();mirrorLocal();}toast('삭제됨');batchList();}
+  if(error){toast('삭제 실패');return;}if(activeBatch&&activeBatch.id===id){activeBatch=null;updateBatchBtn();mirrorLocal();batchFiles();}toast('삭제됨');batchList();}
 // ===== 차수 파일 아카이브 (Supabase Storage) =====
 const SHIP_BUCKET='shipments';
 const FILE_LABELS={'box-label.pdf':'박스라벨 (PDF)','pallet-mark.pdf':'팔레트 마크 (PDF)','cipl.xlsx':'CIPL (Excel)'};
@@ -576,6 +592,57 @@ async function batchFiles(){const el=$('batchFilesList');if(!el)return;
 }
 async function batchFileOpen(name){const {data,error}=await sbClient.storage.from(SHIP_BUCKET).createSignedUrl(activeBatch.id+'/'+name,120);if(error){toast('열기 실패');return;}window.open(data.signedUrl,'_blank');}
 async function batchFileDelete(name){if(!confirm((FILE_LABELS[name]||name)+' 파일을 삭제할까요?'))return;const {error}=await sbClient.storage.from(SHIP_BUCKET).remove([activeBatch.id+'/'+name]);if(error){toast('삭제 실패');return;}toast('삭제됨');batchFiles();}
+// ===== 각 탭 → 차수에 개별 저장 =====
+let sbfKind='box';
+function setSbfStatus(t){const el=$('sbfStatus');if(el)el.textContent=t;}
+async function makeTabBlob(kind){
+  if(kind==='box'){if(!state.boxItems.length)return null;return await pdfBlobFromEl($('boxLabels'),'portrait',794);}
+  if(kind==='pallet'){if(!state.pallets.length)return null;return await pdfBlobFromEl($('palletMarks'),'landscape',1123);}
+  if(kind==='cipl'){if(!state.cipl.items.length)return null;const arr=XLSX.write(ciplWorkbook(),{bookType:'xlsx',type:'array'});return new Blob([arr],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});}
+  return null;
+}
+async function uniqueName(batchId,name){
+  const {data}=await sbClient.storage.from(SHIP_BUCKET).list(batchId,{limit:200});
+  const ex=new Set((data||[]).map(f=>f.name));
+  if(!ex.has(name))return name;
+  const dot=name.lastIndexOf('.');const base=dot>0?name.slice(0,dot):name;const ext=dot>0?name.slice(dot):'';
+  let n=2;while(ex.has(base+' ('+n+')'+ext))n++;return base+' ('+n+')'+ext;
+}
+async function openSaveDialog(kind){
+  if(!(sbClient&&sbUser)){toast('로그인 후 사용하세요 (헤더의 클라우드 버튼)');return;}
+  sbfKind=kind;
+  $('sbfTitle').textContent=(kind==='box'?'박스라벨':kind==='pallet'?'팔레트 마크':'CIPL')+' → 차수에 저장';
+  $('sbfFileName').value=(kind==='cipl'?'CIPL.xlsx':kind==='pallet'?'팔레트마크.pdf':'박스라벨.pdf');
+  const selEl=$('sbfBatch');selEl.innerHTML='<option value="__new__">+ 새 차수 만들기</option>';
+  const {data}=await sbClient.from('shipments').select('id,name').order('updated_at',{ascending:false});
+  (data||[]).forEach(r=>{const o=document.createElement('option');o.value=r.id;o.textContent=r.name;selEl.appendChild(o);});
+  if(activeBatch&&(data||[]).some(r=>r.id===activeBatch.id))selEl.value=activeBatch.id;
+  else if(data&&data.length)selEl.value=data[0].id;else selEl.value='__new__';
+  $('sbfNewNameBox').style.display=selEl.value==='__new__'?'':'none';
+  setSbfStatus('-');$('ovSaveBatch').classList.add('on');
+}
+async function sbfSave(){
+  if(!(sbClient&&sbUser)){toast('로그인 필요');return;}
+  const kind=sbfKind;const sel=$('sbfBatch').value;let batchId,batchName;
+  if(sel==='__new__'){const nm=($('sbfNewName').value||'').trim();if(!nm){toast('새 차수 이름을 입력하세요');return;}
+    setSbfStatus('차수 생성 중…');const {data,error}=await sbClient.from('shipments').insert({name:nm,data:batchSnapshot()}).select('id,name').single();
+    if(error){setSbfStatus('차수 생성 실패: '+error.message);return;}batchId=data.id;batchName=data.name;}
+  else{batchId=sel;batchName=$('sbfBatch').selectedOptions[0].textContent;}
+  const ext=(kind==='cipl'?'.xlsx':'.pdf');
+  let fn=($('sbfFileName').value||'').trim().replace(/[\/\\]/g,'_');
+  if(!fn)fn=(kind==='cipl'?'CIPL':kind==='pallet'?'팔레트마크':'박스라벨');
+  if(!fn.toLowerCase().endsWith(ext))fn+=ext;
+  setSbfStatus('파일 생성 중… (잠시)');
+  let blob;try{blob=await makeTabBlob(kind);}catch(e){setSbfStatus('생성 실패: '+(e.message||e));return;}
+  if(!blob){setSbfStatus('이 탭에 저장할 내용이 없어요');toast('저장할 내용이 없어요');return;}
+  const finalName=await uniqueName(batchId,fn);
+  const ct=(kind==='cipl'?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'application/pdf');
+  const {error}=await sbClient.storage.from(SHIP_BUCKET).upload(batchId+'/'+finalName,blob,{upsert:false,contentType:ct});
+  if(error){setSbfStatus('저장 실패: '+error.message);return;}
+  setSbfStatus('저장됨: '+batchName+' / '+finalName);toast('저장 완료: '+finalName);
+  if(activeBatch&&activeBatch.id===batchId)batchFiles();
+  setTimeout(()=>$('ovSaveBatch').classList.remove('on'),800);
+}
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('on'),1900);}
 function eanValid(s){if(!/^\d{13}$/.test(s))return false;let sum=0;for(let i=0;i<12;i++)sum+=(+s[i])*(i%2?3:1);return (10-(sum%10))%10===+s[12];}
 function cbm(b){if(b&&b.w&&b.d&&b.h)return (b.w*b.d*b.h)/1e9;return null;}
@@ -1155,6 +1222,14 @@ sbInit();bindAuth();reflectAuth();
 // ===== 차수 UI 배선 =====
 $('btnBatch').onclick=()=>{updateBatchBtn();const m=$('batchAuthMsg');if(m)m.style.display=(sbUser?'none':'');setBatchStatus(sbUser?'-':'로그인 필요');batchList();batchFiles();$('ovBatch').classList.add('on');};
 $('batchGenFiles')&&($('batchGenFiles').onclick=genBatchFiles);
+$('boxSaveBatch')&&($('boxSaveBatch').onclick=()=>openSaveDialog('box'));
+$('palletSaveBatch')&&($('palletSaveBatch').onclick=()=>openSaveDialog('pallet'));
+$('ciplSaveBatch')&&($('ciplSaveBatch').onclick=()=>openSaveDialog('cipl'));
+$('sbfX')&&($('sbfX').onclick=()=>$('ovSaveBatch').classList.remove('on'));
+$('sbfCancel')&&($('sbfCancel').onclick=()=>$('ovSaveBatch').classList.remove('on'));
+$('ovSaveBatch')&&($('ovSaveBatch').onclick=e=>{if(e.target.id==='ovSaveBatch')$('ovSaveBatch').classList.remove('on');});
+$('sbfSave')&&($('sbfSave').onclick=sbfSave);
+$('sbfBatch')&&($('sbfBatch').onchange=e=>{$('sbfNewNameBox').style.display=(e.target.value==='__new__')?'':'none';});
 $('batchX').onclick=()=>$('ovBatch').classList.remove('on');
 $('ovBatch').onclick=e=>{if(e.target.id==='ovBatch')$('ovBatch').classList.remove('on');};
 $('batchSaveCur')&&($('batchSaveCur').onclick=batchSaveCur);
