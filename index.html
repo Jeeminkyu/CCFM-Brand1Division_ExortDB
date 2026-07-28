@@ -234,6 +234,7 @@ td.hsin input.blank{background:var(--amberbg)}
       <button data-tab="box">박스쉬핑 라벨<span class="tag">v2</span></button>
       <button data-tab="pallet">팔레트 쉬핑<span class="tag">v2</span></button>
       <button data-tab="cipl">CIPL (CI·PL)</button>
+      <button data-tab="cost">선적원가<span class="tag" id="navcost">TW</span></button>
     </nav>
   </div>
 </header>
@@ -346,6 +347,36 @@ td.hsin input.blank{background:var(--amberbg)}
     <div class="segtabs" id="ciplDocSel"><button data-doc="ci" class="on">Commercial Invoice</button><button data-doc="pl">Packing List</button></div>
     <div id="ciplPreview"></div>
   </section>
+  <section class="panel" id="p-cost">
+    <div class="bar">
+      <label style="font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px">노선
+        <select id="k-route" style="padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card)"><option value="TW">대만 (TW)</option><option value="HK">홍콩 (HK)</option></select></label>
+      <div class="segtabs" id="k-modeSel" style="margin:0"><button data-m="standard" class="on">표준원가</button><button data-m="actual">실적원가</button></div>
+      <span style="font-size:11.5px;color:var(--mut)">표준 = 일시비 제외(판가·견적용) · 실적 = 인보이스 전액(회계마감용)</span>
+      <button class="btn" id="k-pull" style="margin-left:auto">CIPL 품목 불러오기</button>
+      <button class="btn" id="k-xlsx">엑셀 내보내기</button>
+    </div>
+    <div class="phdr" id="costParams" style="grid-template-columns:repeat(3,1fr)">
+      <div class="fld"><label>변동 표준단가 (₩/CBM)</label><input class="mono" id="k-rateStd"></div>
+      <div class="fld"><label>변동 실적단가 (₩/CBM · 일시비 포함)</label><input class="mono" id="k-rateActual"></div>
+      <div class="fld"><label>팔레타이징 할증계수</label><input class="mono" id="k-palletizing"></div>
+      <div class="fld"><label>건당 고정비 (₩/건)</label><input class="mono" id="k-fixShip"></div>
+      <div class="fld"><label>연간 예상 선적건수</label><input class="mono" id="k-annShip" placeholder="미입력 시 고정비 보류"></div>
+      <div class="fld"><label>연간 예상 총출고수량 (EA)</label><input class="mono" id="k-annEa" placeholder="미입력 시 고정비 보류"></div>
+      <div class="fld"><label>관세 총액 (₩)</label><input class="mono" id="k-dutyTotal"></div>
+      <div class="fld"><label>영업세액 (₩ · 모르면 비움)</label><input class="mono" id="k-biztax" placeholder="報單으로 분해 전엔 비움"></div>
+      <div class="fld"><label>영업세 처리</label><select id="k-biztaxRec"><option value="1">공제 → 원가 제외 (기본)</option><option value="0">공제불가 → 원가 포함</option></select></div>
+    </div>
+    <div class="bar" style="margin-top:2px">
+      <div class="grow"><input class="search" id="k-q" placeholder="품번·품명으로 SKU 추가"></div>
+    </div>
+    <div class="pickrow" id="costPick"></div>
+    <div id="costItems"></div>
+    <div class="stats" id="costSum"></div>
+    <p style="font-size:12px;color:var(--mut);max-width:940px;margin-top:8px">
+      관세는 종가세라 CBM이 아니라 <b>CI 금액</b> 기준으로 배부됩니다. 지금은 <b>Tier B(CI 비례 근사)</b>로 자동 계산되며 해당 SKU엔 <span class="badge" style="background:var(--amberbg);color:var(--amber)">근사</span> 배지가 붙습니다. 進口報單을 받으면 SKU별 <b>報單 확정관세/EA</b> 칸에 값을 넣어 <span class="badge b-M">확정</span>(Tier A)으로 승격할 수 있습니다. 완박 체적정보나 연간 물량이 없으면 해당 레이어는 <span class="miss">▲</span>로 보류됩니다.
+    </p>
+  </section>
 </main>
 
 <div class="ov" id="ov"><div class="modal">
@@ -455,7 +486,17 @@ const DEF_COUNTRIES=[{code:'TW',label:'대만(TW)'},{code:'HK',label:'홍콩(HK)
 const TW_FIX={};
 // 상품정보고시/CIPL 기준 중문 주명 + 영문명 교정 (빈값 또는 이전 추정값일 때만 덮어씀)
 const NAME_FIX={};
-let DB=[], COUNTRIES=[], state={q:'',qhs:'',brand:'all',sort:'code',dir:1,editIdx:-1,optCols:{nameEn:false,nameZh:false,maker:false,cbm:false},boxq:'',boxItems:[],pallet:{consignor:'',consignee:'',po:'',item:''},pallets:[{weight:''}],ciplq:'',cipl:{hdr:{invNo:'',invDate:'',destCountry:'TW',consignee:'',notify:'Same as Consignee',incoterms:'DDP',pol:'BUSAN PORT',dest:'TAIWAN',carrier:'',sailing:'',lc:'',lcbank:'',currency:'USD',shipper:''},doc:'ci',items:[]}};
+let DB=[], COUNTRIES=[], state={q:'',qhs:'',brand:'all',sort:'code',dir:1,editIdx:-1,optCols:{nameEn:false,nameZh:false,maker:false,cbm:false},boxq:'',boxItems:[],pallet:{consignor:'',consignee:'',po:'',item:''},pallets:[{weight:''}],ciplq:'',cipl:{hdr:{invNo:'',invDate:'',destCountry:'TW',consignee:'',notify:'Same as Consignee',incoterms:'DDP',pol:'BUSAN PORT',dest:'TAIWAN',carrier:'',sailing:'',lc:'',lcbank:'',currency:'USD',shipper:''},doc:'ci',items:[]},cost:{q:'',items:[]}};
+// ---- 선적원가(landed cost) 파라미터: 노선별 저장 (인계문서 §2.2 기준) ----
+const DEF_COST={route:'TW',mode:'standard',routes:{
+  TW:{usdKrw:1559,rateStd:189182,rateActual:259338,palletizing:1.63,fixShip:978344,annShip:'',annEa:'',duty:{total:6990291,biztax:'',biztaxRecoverable:true}},
+  HK:{usdKrw:'',rateStd:181922,rateActual:181922,palletizing:1.63,fixShip:515795,annShip:12,annEa:112000,duty:{total:'',biztax:'',biztaxRecoverable:true}}
+}};
+let COST=structuredClone(DEF_COST);
+function mergeCost(o){const base=structuredClone(DEF_COST);if(!o)return base;
+  if(o.route)base.route=o.route;if(o.mode)base.mode=o.mode;
+  ['TW','HK'].forEach(k=>{if(o.routes&&o.routes[k]){const d=Object.assign(base.routes[k],o.routes[k]);d.duty=Object.assign(structuredClone(DEF_COST.routes[k].duty),o.routes[k].duty||{});base.routes[k]=d;}});
+  return base;}
 const CONSIGNEES={TW:'Company : Gaozhi Biotech Co., Ltd.\nAddress : 11 F., No. 122, Songjiang Rd., Zhongshan Dist., Taipei City 104092, Taiwan\n',HK:'Company : MELABLE HK LIMITED\nAddress : Unit B, 17/F., United Centre, 95 Queensway, Admiralty, Hong Kong\n'};
 const $=id=>document.getElementById(id);
 
@@ -474,6 +515,8 @@ function load(){
   const hadStore=!!localStorage.getItem(KEY);
   try{const r=localStorage.getItem(KEY);DB=r?JSON.parse(r):structuredClone(SEED);}catch(e){DB=structuredClone(SEED);}
   try{const c=localStorage.getItem(CKEY);COUNTRIES=c?JSON.parse(c):structuredClone(DEF_COUNTRIES);}catch(e){COUNTRIES=structuredClone(DEF_COUNTRIES);}
+  try{const cs=localStorage.getItem('scm_cost_v1');COST=mergeCost(cs?JSON.parse(cs):null);}catch(e){COST=structuredClone(DEF_COST);}
+  try{const ci=localStorage.getItem('scm_cost_items_v1');state.cost.items=ci?(JSON.parse(ci)||[]):[];}catch(e){state.cost.items=[];}
   const before=DB.length;normalizeDB();if(DB.length!==before)localStorage.setItem(KEY,JSON.stringify(DB));
   // migrate old localStorage TW codes to official declaration values (preserve manual edits)
   const sv=+(localStorage.getItem(SVKEY)||1);let changed=false;
@@ -485,6 +528,8 @@ function load(){
 }
 function save(){localStorage.setItem(KEY,JSON.stringify(DB));scheduleCloud();}
 function saveCountries(){localStorage.setItem(CKEY,JSON.stringify(COUNTRIES));scheduleCloud();}
+function saveCost(){localStorage.setItem('scm_cost_v1',JSON.stringify(COST));scheduleCloud();}
+function saveCostItems(){localStorage.setItem('scm_cost_items_v1',JSON.stringify(state.cost.items));}
 // ---- Supabase cloud sync ----
 let SB_URL=localStorage.getItem('sb_url')||'https://euekgawqhxenvhktlnsh.supabase.co', SB_KEY=localStorage.getItem('sb_key')||'sb_publishable_SdwyZtmiTyFqMiUQKkjCQA_AqJP2ogH', cloudT=null, cloudBusy=false, cloudInit=false, sbClient=null, sbUser=null;
 function sbReady(){return !!(SB_URL&&SB_KEY&&sbClient);}
@@ -493,7 +538,7 @@ function setSbStatus(t){const el=$('sbStatus');if(el)el.textContent=t;const dot=
 function scheduleCloud(){if(!sbClient||!sbUser||!cloudInit)return;clearTimeout(cloudT);cloudT=setTimeout(cloudSave,900);}
 async function cloudSave(){
   if(!sbClient||!sbUser||cloudBusy)return;cloudBusy=true;
-  try{const {error}=await sbClient.from('app_state').upsert({id:'scm_master',data:{db:DB,countries:COUNTRIES,ver:SEED_VER},updated_at:new Date().toISOString()});
+  try{const {error}=await sbClient.from('app_state').upsert({id:'scm_master',data:{db:DB,countries:COUNTRIES,cost:COST,ver:SEED_VER},updated_at:new Date().toISOString()});
     if(error)throw error;setSbStatus('동기화됨 '+new Date().toLocaleTimeString());
   }catch(e){setSbStatus('저장 실패: '+(e.message||e));}finally{cloudBusy=false;}
 }
@@ -504,9 +549,10 @@ async function cloudLoad(){
     if(rows&&rows.length&&rows[0].data){const d=rows[0].data;
       if(Array.isArray(d.db))DB=d.db;
       if(Array.isArray(d.countries)&&d.countries.length)COUNTRIES=d.countries;
+      if(d.cost){COST=mergeCost(d.cost);localStorage.setItem('scm_cost_v1',JSON.stringify(COST));}
       normalizeDB();
       localStorage.setItem(KEY,JSON.stringify(DB));localStorage.setItem(CKEY,JSON.stringify(COUNTRIES));
-      setSbStatus('로그인됨 · 불러옴 '+new Date().toLocaleTimeString());refresh();
+      setSbStatus('로그인됨 · 불러옴 '+new Date().toLocaleTimeString());refresh();if($('p-cost')&&$('p-cost').classList.contains('on'))costSyncUI();
     }else{await cloudSave();setSbStatus('로그인됨 · 초기 업로드 완료');}
     return true;
   }catch(e){setSbStatus('오류: '+(e.message||e));return false;}
@@ -1143,11 +1189,140 @@ function ciplExport(){
 function printCipl(){let st=document.getElementById('printoff');if(!st){st=document.createElement('style');st.id='printoff';document.head.appendChild(st);}st.textContent='@media print{@page{size:A4 portrait;margin:10mm}}';document.body.classList.add('pc');window.print();}
 function renderCipl(){renderCiplItems();renderCiplTotals();renderCiplPreview();batchTouch();}
 
+/* ---- 선적원가 (landed cost) : 3-레이어 = 운임변동 + 운임고정 + 관세 ---- */
+function costRoute(){return COST.routes[COST.route]||COST.routes.TW;}
+function costRate(r){return COST.mode==='actual'?(+r.rateActual||+r.rateStd||0):(+r.rateStd||0);}
+function costDutyBase(r){const tot=+r.duty.total||0;const bt=+r.duty.biztax||0;return r.duty.biztaxRecoverable?Math.max(0,tot-bt):tot;}
+function costCompute(){
+  const r=costRoute();const rate=costRate(r);const pf=+r.palletizing||1;
+  const fixShip=+r.fixShip||0,annShip=+r.annShip||0,annEa=+r.annEa||0;
+  const fixEa=(fixShip&&annShip&&annEa)?(fixShip*annShip)/annEa:null;
+  const dutyBase=costDutyBase(r);
+  const sumCi=state.cost.items.reduce((s,it)=>s+(+it.ci||0),0);
+  const effRate=(dutyBase&&sumCi)?dutyBase/sumCi:null;
+  const rows=state.cost.items.map(it=>{
+    const p=DB.find(x=>x.code===it.code)||{};
+    const bcbm=cbm(p.box);const upb=p.unitsPerBox;
+    const perEaCbm=(bcbm&&upb)?bcbm/upb:null;
+    const fVar=perEaCbm!=null?perEaCbm*rate*pf:null;
+    const ea=+it.ea||0,ci=+it.ci||0;
+    const dutyA=(it.dutyEaA!==''&&it.dutyEaA!=null)?+it.dutyEaA:null;
+    let dutyEa=null,conf='pending';
+    if(dutyA!=null){dutyEa=dutyA;conf='confirmed';}
+    else if(effRate!=null&&ea>0){dutyEa=ci*effRate/ea;conf='estimated';}
+    const complete=(fVar!=null&&fixEa!=null&&dutyEa!=null);
+    const total=(fVar||0)+(fixEa||0)+(dutyEa||0);
+    return {it,p,bcbm,upb,fVar,fixEa,dutyEa,conf,complete,total,ea};
+  });
+  return {rows,fixEa,effRate,dutyBase,sumCi,rate,r};
+}
+function costBadge(conf){return conf==='confirmed'?'<span class="badge b-M">확정</span>':conf==='estimated'?'<span class="badge" style="background:var(--amberbg);color:var(--amber)">근사</span>':'<span class="badge" style="background:#eee;color:var(--mut)">미확정</span>';}
+function renderCostTable(){
+  const el=$('costItems');
+  if(!state.cost.items.length){el.innerHTML='<div class="emptybox">위에서 SKU를 추가하거나 "CIPL 품목 불러오기"를 누르세요.</div>';costRecompute();return;}
+  const rows=state.cost.items.map((it,i)=>{
+    const p=DB.find(x=>x.code===it.code)||{};
+    const nm=p.nameKo||p.nameEn||'<span style="color:var(--amber)">미매칭</span>';
+    return `<tr>
+      <td><input class="mono ${p.code?'':'blank'}" style="width:56px" data-ki="${i}" data-f="code" value="${(it.code||'').replace(/"/g,'&quot;')}"></td>
+      <td style="min-width:150px">${nm}</td>
+      <td><input class="mono" style="width:72px" type="number" data-ki="${i}" data-f="ea" value="${it.ea??''}"></td>
+      <td><input class="mono" style="width:88px" type="number" step="0.01" data-ki="${i}" data-f="ci" value="${it.ci??''}"></td>
+      <td class="num mono" id="cv-cbm-${i}">—</td>
+      <td class="num mono" id="cv-upb-${i}">—</td>
+      <td class="num mono" id="cv-fvar-${i}">—</td>
+      <td class="num mono" id="cv-fix-${i}">—</td>
+      <td class="num mono" id="cv-duty-${i}">—</td>
+      <td><input class="mono" style="width:80px" type="number" data-ki="${i}" data-f="dutyEaA" value="${it.dutyEaA??''}" placeholder="報單값"></td>
+      <td class="num mono" id="cv-total-${i}">—</td>
+      <td id="cv-conf-${i}"></td>
+      <td><button class="rm" data-rk="${i}" title="삭제">✕</button></td>
+    </tr>`;}).join('');
+  el.innerHTML=`<div class="cfg"><table class="lines" style="min-width:1120px"><thead><tr>
+    <th>품번</th><th>품명</th><th>출고 EA</th><th>CI 금액</th><th>완박CBM</th><th>입수</th><th>운임변동/EA</th><th>운임고정/EA</th><th>관세/EA</th><th>報單 확정관세/EA</th><th>총 착지원가/EA</th><th>신뢰도</th><th></th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`;
+  el.querySelectorAll('input[data-ki][data-f="ea"],input[data-ki][data-f="ci"],input[data-ki][data-f="dutyEaA"]').forEach(inp=>inp.addEventListener('input',e=>{
+    state.cost.items[+e.target.dataset.ki][e.target.dataset.f]=e.target.value;saveCostItems();costRecompute();}));
+  el.querySelectorAll('input[data-ki][data-f="code"]').forEach(inp=>inp.addEventListener('change',e=>{
+    state.cost.items[+e.target.dataset.ki].code=padCode(e.target.value.trim());saveCostItems();renderCostTable();}));
+  el.querySelectorAll('[data-rk]').forEach(b=>b.onclick=()=>{state.cost.items.splice(+b.dataset.rk,1);saveCostItems();renderCostTable();});
+  costRecompute();
+}
+function costRecompute(){
+  const c=costCompute();const fmt=n=>n==null?'—':Math.round(n).toLocaleString();
+  const set=(id,html)=>{const el=document.getElementById(id);if(el)el.innerHTML=html;};
+  c.rows.forEach((row,i)=>{
+    set('cv-cbm-'+i,row.bcbm?row.bcbm.toFixed(4):'<span class="miss">▲</span>');
+    set('cv-upb-'+i,row.upb??'<span class="miss">—</span>');
+    set('cv-fvar-'+i,fmt(row.fVar));set('cv-fix-'+i,fmt(row.fixEa));set('cv-duty-'+i,fmt(row.dutyEa));
+    if(row.complete)set('cv-total-'+i,'<b style="color:var(--accent)">'+fmt(row.total)+'</b>');
+    else{const m=[];if(row.fVar==null)m.push('체적');if(row.fixEa==null)m.push('고정비');if(row.dutyEa==null)m.push('관세');set('cv-total-'+i,'<span class="miss">▲ '+m.join('·')+'</span>');}
+    set('cv-conf-'+i,costBadge(row.conf));
+  });
+  if(!state.cost.items.length){$('costSum').innerHTML='';return;}
+  const paid=c.rows.reduce((s,x)=>s+((x.dutyEa!=null?x.dutyEa:0)*(+x.it.ea||0)),0);
+  const diffOk=c.dutyBase?Math.abs(c.dutyBase-paid)<=Math.max(1,c.dutyBase*0.001):null;
+  const anyPending=c.rows.some(x=>x.conf!=='confirmed');
+  $('costSum').innerHTML=`노선 <b>${COST.route}</b> · 모드 <b>${COST.mode==='actual'?'실적':'표준'}</b>`+
+    ` · 변동단가 <b>${(c.rate||0).toLocaleString()}</b> ₩/CBM`+
+    ` · 고정비/EA <b>${c.fixEa!=null?Math.round(c.fixEa).toLocaleString():'—'}</b> ₩`+
+    ` · 관세배부기준액 <b>${c.dutyBase?c.dutyBase.toLocaleString():'—'}</b> ₩`+
+    ` · 실효배부율 <b>${c.effRate!=null?c.effRate.toFixed(3):'—'}</b>`+
+    (c.effRate!=null?` · 검산 ${diffOk?'<span style="color:var(--ok)">✓ 일치</span>':'<span style="color:var(--red)">⚠ 불일치</span>'}`:'')+
+    (anyPending?` · <span style="color:var(--amber)">관세 미확정 SKU 있음(報單 대기)</span>`:'');
+}
+function costPickRender(){
+  const q=(state.cost.q||'').trim().toLowerCase();const el=$('costPick');
+  if(!q){el.innerHTML='';return;}
+  const list=DB.filter(p=>!state.cost.items.some(i=>i.code===p.code)&&(p.code+p.nameKo+(p.nameEn||'')).toLowerCase().includes(q)).slice(0,12);
+  el.innerHTML=list.length?list.map(p=>`<span class="p" data-addk="${p.code}"><span class="c">${p.code}</span>${p.nameKo}</span>`).join(''):'<span style="font-size:12px;color:var(--mut)">없음</span>';
+  el.querySelectorAll('[data-addk]').forEach(b=>b.onclick=()=>{addCostItem(b.dataset.addk);state.cost.q='';$('k-q').value='';costPickRender();});
+}
+function addCostItem(code){if(state.cost.items.some(i=>i.code===code))return;const p=DB.find(x=>x.code===code)||{};state.cost.items.push({code,ea:p.unitsPerBox||'',ci:'',dutyEaA:''});saveCostItems();renderCostTable();}
+function costSyncUI(){
+  const r=costRoute();
+  $('k-route').value=COST.route;
+  const tag=$('navcost');if(tag)tag.textContent=COST.route;
+  document.querySelectorAll('#k-modeSel button').forEach(b=>b.classList.toggle('on',b.dataset.m===COST.mode));
+  $('k-rateStd').value=r.rateStd??'';$('k-rateActual').value=r.rateActual??'';$('k-palletizing').value=r.palletizing??'';
+  $('k-fixShip').value=r.fixShip??'';$('k-annShip').value=r.annShip??'';$('k-annEa').value=r.annEa??'';
+  $('k-dutyTotal').value=r.duty.total??'';$('k-biztax').value=r.duty.biztax??'';$('k-biztaxRec').value=r.duty.biztaxRecoverable?'1':'0';
+  renderCostTable();
+}
+function costInit(){
+  $('k-route').addEventListener('change',e=>{COST.route=e.target.value;saveCost();costSyncUI();});
+  $('k-modeSel').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;COST.mode=b.dataset.m;document.querySelectorAll('#k-modeSel button').forEach(x=>x.classList.toggle('on',x===b));saveCost();costRecompute();});
+  [['k-rateStd','rateStd'],['k-rateActual','rateActual'],['k-palletizing','palletizing'],['k-fixShip','fixShip'],['k-annShip','annShip'],['k-annEa','annEa']].forEach(([id,key])=>{
+    $(id).addEventListener('input',e=>{costRoute()[key]=e.target.value;saveCost();costRecompute();});});
+  $('k-dutyTotal').addEventListener('input',e=>{costRoute().duty.total=e.target.value;saveCost();costRecompute();});
+  $('k-biztax').addEventListener('input',e=>{costRoute().duty.biztax=e.target.value;saveCost();costRecompute();});
+  $('k-biztaxRec').addEventListener('change',e=>{costRoute().duty.biztaxRecoverable=e.target.value==='1';saveCost();costRecompute();});
+  $('k-q').addEventListener('input',e=>{state.cost.q=e.target.value;costPickRender();});
+  $('k-pull').onclick=()=>{const src=state.cipl.items.filter(it=>it.code);if(!src.length){toast('CIPL에 매칭된 품목이 없습니다');return;}
+    state.cost.items=src.map(it=>({code:it.code,ea:+it.qty||'',ci:((+it.qty||0)*(+it.price||0))||'',dutyEaA:''}));
+    if(state.cipl.hdr.destCountry&&COST.routes[state.cipl.hdr.destCountry])COST.route=state.cipl.hdr.destCountry;
+    saveCostItems();saveCost();costSyncUI();toast(state.cost.items.length+'개 불러옴 · CI금액=수량×단가');};
+  $('k-xlsx').onclick=costExport;
+}
+function costExport(){
+  if(!state.cost.items.length){toast('품목이 없습니다');return;}
+  const c=costCompute();const rd=n=>n==null?'':Math.round(n);
+  const rows=c.rows.map(row=>({'품번':row.it.code,'품명':row.p.nameKo||row.p.nameEn||'','출고EA':+row.it.ea||'','CI금액':+row.it.ci||'',
+    '완박CBM':row.bcbm?+row.bcbm.toFixed(4):'','입수':row.upb??'','운임변동/EA':rd(row.fVar),'운임고정/EA':rd(row.fixEa),
+    '관세/EA':rd(row.dutyEa),'총착지원가/EA':row.complete?rd(row.total):'','신뢰도':row.conf}));
+  const meta=[{'항목':'노선',' 값':COST.route},{'항목':'모드',' 값':COST.mode},{'항목':'변동단가(₩/CBM)',' 값':c.rate},
+    {'항목':'고정비/EA(₩)',' 값':rd(c.fixEa)},{'항목':'관세배부기준액(₩)',' 값':c.dutyBase||''},{'항목':'실효배부율',' 값':c.effRate!=null?+c.effRate.toFixed(4):''}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'선적원가');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(meta),'파라미터');
+  XLSX.writeFile(wb,'선적원가_'+COST.route+'_'+new Date().toISOString().slice(0,10)+'.xlsx');toast('엑셀 내보내기 완료');
+}
+
 /* events */
 $('nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
   document.querySelectorAll('#nav button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on'));$('p-'+b.dataset.tab).classList.add('on');
-  if(b.dataset.tab==='hs')renderHS();if(b.dataset.tab==='box')renderBox();if(b.dataset.tab==='pallet')renderPallet();if(b.dataset.tab==='cipl')renderCipl();});
+  if(b.dataset.tab==='hs')renderHS();if(b.dataset.tab==='box')renderBox();if(b.dataset.tab==='pallet')renderPallet();if(b.dataset.tab==='cipl')renderCipl();if(b.dataset.tab==='cost')costSyncUI();});
 $('q').addEventListener('input',e=>{state.q=e.target.value;renderTable();});
 $('qhs').addEventListener('input',e=>{state.qhs=e.target.value;renderHS();});
 $('boxq').addEventListener('input',e=>{state.boxq=e.target.value;renderBoxPick();});
@@ -1171,6 +1346,8 @@ $('palletPrint').onclick=()=>{if(!state.pallets.length){toast('추가된 팔레�
 window.addEventListener('afterprint',()=>{document.body.classList.remove('pb','pp','pc');});
 // CIPL
 ciplHdrInit();
+// 선적원가
+costInit();
 $('ciplq').addEventListener('input',e=>{state.ciplq=e.target.value;renderCiplPick();});
 $('ciplImport').onclick=()=>$('ciplFile').click();
 $('ciplFile').onchange=e=>{if(e.target.files[0])ciplImportPL(e.target.files[0]);e.target.value='';};
