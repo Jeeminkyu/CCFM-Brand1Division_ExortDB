@@ -120,9 +120,11 @@ td.num{text-align:right}
 .ptott{font-family:var(--mono);font-weight:700;color:var(--accent);margin-left:auto}
 .pmark{border:3px solid #111;border-radius:6px;padding:22px;margin:0 auto 18px;width:100%;max-width:900px;background:#fff}
 .pmark .top{display:grid;grid-template-columns:1fr 1.5fr;gap:18px;border-bottom:2px solid #111;padding-bottom:16px}
-.pmark .cons{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;border:2px solid #111;border-radius:6px;padding:18px 12px}
-.pmark .cons .logo{font-weight:800;font-size:20px;line-height:1.2}
-.pmark .cons .clbl{margin-top:12px;font-size:11px;letter-spacing:.16em;color:#333;border-top:1px solid #bbb;padding-top:8px;width:100%}
+.pmark .cons{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px}
+.pmark .cons .dia{position:relative;width:190px;height:190px;display:flex;align-items:center;justify-content:center}
+.pmark .cons .dia::before{content:"";position:absolute;top:50%;left:50%;width:132px;height:132px;transform:translate(-50%,-50%) rotate(45deg);border:2px solid #111}
+.pmark .cons .logo{position:relative;z-index:1;font-weight:800;font-size:17px;line-height:1.25;text-align:center}
+.pmark .cons .clbl{font-size:11px;letter-spacing:.2em;color:#333}
 .pmark .info{display:flex;flex-direction:column;justify-content:center}
 .pmark .info .r{padding:8px 2px;border-bottom:1px solid #ddd}
 .pmark .info .k{font-size:11px;letter-spacing:.14em;color:#666}
@@ -130,10 +132,11 @@ td.num{text-align:right}
 .pmark .plt{text-align:center;padding:20px 0 6px}
 .pmark .plt .k{font-size:13px;letter-spacing:.2em;color:#333}
 .pmark .plt .no{font-size:58px;font-weight:800;letter-spacing:.04em;line-height:1.1}
-.pmark .gw{display:flex;align-items:center;justify-content:center;gap:16px;border-top:2px solid #111;padding-top:16px}
-.pmark .gw .k{font-size:14px;letter-spacing:.14em;font-weight:600}
-.pmark .gw .v{font-size:32px;font-weight:800;min-width:130px;text-align:center;border-bottom:2px solid #111;padding:0 10px}
-.pmark .gw .u{font-size:16px;font-weight:700}
+.pmark .plt .no .sub{color:#9aa}
+.pmark .gw{display:flex;align-items:flex-end;gap:14px;border-top:2px solid #111;padding-top:16px}
+.pmark .gw .k{font-size:14px;letter-spacing:.1em;font-weight:600;padding-bottom:4px;white-space:nowrap}
+.pmark .gw .v{flex:1;min-width:0;font-size:28px;font-weight:800;text-align:right;border-bottom:2px solid #111;padding:0 10px 2px}
+.pmark .gw .u{font-size:14px;font-weight:700;padding-bottom:4px}
 @media print{
   body{background:#fff}
   nav,header{display:none!important}
@@ -1011,14 +1014,14 @@ function renderPalletCfg(){
 function markCard(h,no,total,weight){
   return `<div class="pmark">
     <div class="top">
-      <div class="cons"><div class="logo">${(h.consignor||'').replace(/\n/g,'<br>')}</div><div class="clbl">CONSIGNOR</div></div>
+      <div class="cons"><div class="dia"><div class="logo">${(h.consignor||'').replace(/\n/g,'<br>')}</div></div><div class="clbl">CONSIGNOR</div></div>
       <div class="info">
         <div class="r"><div class="k">CONSIGNEE</div><div class="v">${h.consignee||''}</div></div>
         <div class="r"><div class="k">P/O NO.</div><div class="v" style="font-family:var(--mono)">${h.po||''}</div></div>
         <div class="r" style="border-bottom:0"><div class="k">ITEM</div><div class="v">${h.item||''}</div></div>
       </div>
     </div>
-    <div class="plt"><div class="k">PALLET No.</div><div class="no">${String(no).padStart(2,'0')} / ${total}</div></div>
+    <div class="plt"><div class="k">PALLET No.</div><div class="no">${String(no).padStart(2,'0')}<span class="sub"> / ${total}</span></div></div>
     <div class="gw"><span class="k">GROSS WEIGHT</span><span class="v">${weight!==''&&weight!=null?(+weight).toLocaleString():'&nbsp;'}</span><span class="u">KG</span></div>
   </div>`;
 }
