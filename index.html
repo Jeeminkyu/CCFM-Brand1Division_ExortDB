@@ -8,6 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 :root{
   --ink:#16202e;--ink2:#2b3a4d;--paper:#f4f5f6;--card:#ffffff;--line:#e7e7e3;
@@ -358,7 +359,8 @@ td.hsin input.blank{background:var(--amberbg)}
       <span style="font-size:11.5px;color:var(--mut)">차수가 쌓일수록 표준원가가 수렴합니다 · 표준 = 일시비 제외 · 실적 = 일시비 포함</span>
       <button class="btn" id="k-xlsx" style="margin-left:auto">엑셀 내보내기</button>
     </div>
-    <h3 style="font-size:13px;color:var(--ink2);margin:6px 0 8px;font-weight:600">① 운임 차수 원장 <span style="font-weight:400;color:var(--mut)">— 선적마다 인보이스 요약(CBM·선적비·일시비)을 추가</span> <button class="btnxs" id="k-addShip" style="margin-left:8px">+ 차수 추가</button></h3>
+    <h3 style="font-size:13px;color:var(--ink2);margin:6px 0 8px;font-weight:600">① 운임 차수 원장 <span style="font-weight:400;color:var(--mut)">— 선적마다 인보이스 요약(CBM·선적비·일시비)을 추가</span> <button class="btnxs" id="k-upload" style="margin-left:8px">📄 인보이스 업로드(자동)</button> <button class="btnxs" id="k-addShip">+ 차수 수동추가</button>
+      <input type="file" id="k-file" accept=".pdf,.PDF" multiple hidden></h3>
     <div id="costLedger"></div>
     <div class="stats" id="costStd"></div>
     <div id="costDutyWrap">
@@ -1308,11 +1310,56 @@ function costInit(){
   $('k-route').addEventListener('change',e=>{COST.route=e.target.value;saveCost();costSyncUI();});
   $('k-modeSel').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;COST.mode=b.dataset.m;document.querySelectorAll('#k-modeSel button').forEach(x=>x.classList.toggle('on',x===b));saveCost();costRecompute();});
   $('k-addShip').onclick=()=>{costRoute().shipments.push({id:newShipId(),label:'',date:'',cbm:'',subtotal:'',onceSum:'',dutySku:[]});saveCost();renderCost();};
+  if(window.pdfjsLib){try{pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';}catch(e){}}
+  $('k-upload').onclick=()=>{if(!window.pdfjsLib){toast('PDF 라이브러리 로드 실패 — 인터넷 확인');return;}$('k-file').click();};
+  $('k-file').onchange=async e=>{const files=[...e.target.files];e.target.value='';for(const f of files){await handleFreightFile(f);}};
   $('k-q').addEventListener('input',e=>{state.cost.q=e.target.value;costPickRender();});
   $('k-fillSku').onclick=()=>{const r=costRoute();const codes=[...new Set((r.shipments||[]).flatMap(s=>(s.dutySku||[]).map(d=>padCode(d.code))))];
     if(!codes.length){toast(COST.route==='HK'?'홍콩은 검색으로 SKU를 추가하세요':'관세 원장에 SKU가 없습니다');return;}
     let n=0;codes.forEach(cd=>{if(!state.cost.items.some(i=>i.code===cd)){state.cost.items.push({code:cd});n++;}});saveCostItems();renderCostTable();toast(n+'개 SKU 반영');};
   $('k-xlsx').onclick=costExport;
+}
+async function parseFreightPdf(data){
+  const pdf=await pdfjsLib.getDocument({data}).promise;
+  const rowsAll=[];
+  for(let p=1;p<=pdf.numPages;p++){
+    const page=await pdf.getPage(p);const tc=await page.getTextContent();
+    const map={};
+    for(const it of tc.items){if(!it.str.trim())continue;const x=it.transform[4],y=Math.round(it.transform[5]);
+      let key=null;for(const k in map){if(Math.abs(+k-y)<=3){key=k;break;}}if(key===null)key=y;(map[key]=map[key]||[]).push({x,s:it.str});}
+    for(const y in map)rowsAll.push({page:p,items:map[y].sort((a,b)=>a.x-b.x)});
+  }
+  const txt=r=>r.items.map(i=>i.s).join(' ');
+  const isNum=s=>/^-?\d[\d,]*(\.\d+)?$/.test(String(s).trim());
+  const toNum=s=>+String(s).replace(/,/g,'');
+  const chargeCol=r=>r.items.filter(i=>i.x>=470&&isNum(i.s)); // CHARGES IN KRW 컬럼(우측)
+  let subtotal=null;
+  for(const r of rowsAll){if(/SUBTOTAL/i.test(txt(r))){const c=chargeCol(r);if(c.length)subtotal=toNum(c[c.length-1].s);}}
+  let once=0;const onceItems=[];
+  for(const r of rowsAll){const t=txt(r);if(/STORAGE|DEMURRAGE|DETENTION/i.test(t)){const c=chargeCol(r);if(c.length){const v=toNum(c[c.length-1].s);once+=v;onceItems.push(t.replace(/\s+/g,' ').slice(0,40));}}}
+  let cbm=null,volume=null,xChg=null;
+  for(const r of rowsAll)for(const it of r.items)if(/CHARGEABLE/i.test(it.s))xChg=it.x;
+  for(const r of rowsAll){const m3s=r.items.filter(i=>/^\d+(\.\d+)?$/.test(i.s.trim())&&r.items.some(j=>j.x>i.x&&j.x-i.x<40&&/M3/i.test(j.s)));
+    if(m3s.length){if(xChg!=null){let best=null,bd=1e9;for(const t of m3s){const d=Math.abs(t.x-xChg);if(d<bd){bd=d;best=t;}}if(best)cbm=toNum(best.s);}volume=toNum(m3s[0].s);if(cbm==null)cbm=volume;}}
+  if(cbm==null&&volume!=null)cbm=volume;
+  const full=rowsAll.map(txt).join(' | ');
+  const routeGuess=/taiwan|keelung|TWKEL/i.test(full)?'TW':(/hong ?kong|HKG/i.test(full)?'HK':null);
+  const dateM=full.match(/INVOICE DATE\s+(\d{1,2}-[A-Za-z]{3}-\d{2})/);
+  const invM=full.match(/INVOICE\s+([A-Z]{3}\d{6,})/);
+  const currencyOk=(subtotal!=null&&Number.isInteger(subtotal)&&subtotal>10000);
+  return {cbm,subtotal,once,freight:subtotal!=null?subtotal-once:null,onceItems,routeGuess,invoiceNo:invM?invM[1]:null,date:dateM?dateM[1]:null,currencyOk};
+}
+async function handleFreightFile(file){
+  try{
+    const buf=await file.arrayBuffer();
+    const r=await parseFreightPdf(new Uint8Array(buf));
+    if(r.subtotal==null){toast('금액(SUBTOTAL)을 못 찾았어요: '+file.name);return;}
+    if(!r.currencyOk){toast('원화(KRW) 인보이스가 아닌 듯 — Noatum 코리아 인보이스를 올려주세요: '+(r.invoiceNo||file.name));return;}
+    if(r.routeGuess&&COST.routes[r.routeGuess]&&COST.route!==r.routeGuess)COST.route=r.routeGuess;
+    costRoute().shipments.push({id:newShipId(),label:r.invoiceNo||((r.routeGuess||'')+'선적'),date:r.date||'',cbm:r.cbm||'',subtotal:r.freight||'',onceSum:r.once||0,dutySku:[]});
+    saveCost();costSyncUI();
+    toast('추가됨: '+(r.invoiceNo||file.name)+' · CBM '+(r.cbm||'?')+' · 선적비 '+(r.freight||0).toLocaleString()+(r.once?(' · 일시 '+r.once.toLocaleString()):''));
+  }catch(err){console.error(err);toast('인보이스 파싱 오류: '+(err.message||err));}
 }
 function costExport(){
   const c=costCompute();const r=costRoute();const std=c.std;const rd=n=>n==null?'':Math.round(n);
