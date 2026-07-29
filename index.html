@@ -369,10 +369,9 @@ td.hsin input.blank{background:var(--amberbg)}
       <h3 style="font-size:13px;color:var(--ink2);margin:16px 0 8px;font-weight:600">② 관세 원장 (대만) <span style="font-weight:400;color:var(--mut)">— 進口報單의 SKU별 확정관세(₩, 營業稅 제외)를 차수별로 누적</span></h3>
       <div id="costDuty"></div>
     </div>
-    <h3 style="font-size:13px;color:var(--ink2);margin:16px 0 8px;font-weight:600">③ SKU별 표준 착지원가</h3>
+    <h3 style="font-size:13px;color:var(--ink2);margin:16px 0 8px;font-weight:600">③ SKU별 표준 착지원가 <span style="font-weight:400;color:var(--mut)">— 업로드한 차수의 선적품목이 자동 표시 (더 보려면 검색 추가)</span></h3>
     <div class="bar" style="margin-top:2px">
-      <div class="grow"><input class="search" id="k-q" placeholder="품번·품명으로 SKU 추가"></div>
-      <button class="btn" id="k-fillSku">관세원장 SKU 채우기</button>
+      <div class="grow"><input class="search" id="k-q" placeholder="품번·품명으로 SKU 추가(선택)"></div>
     </div>
     <div class="pickrow" id="costPick"></div>
     <div id="costItems"></div>
@@ -1199,7 +1198,17 @@ function renderCipl(){renderCiplItems();renderCiplTotals();renderCiplPreview();b
 
 /* ---- 선적원가 (landed cost) : 단일 ₩/CBM 운임 + 대만 관세 ---- */
 function costRoute(){return COST.routes[COST.route]||COST.routes.TW;}
-function costItems(){const r=costRoute();if(!Array.isArray(r.items))r.items=[];return r.items;} // 노선별 SKU 목록
+function costItems(){const r=costRoute();if(!Array.isArray(r.items))r.items=[];return r.items;} // 노선별 수동추가 SKU
+function shipmentSkus(s){const set=new Set();(s.skus||[]).forEach(c=>{const p=padCode(c);if(p)set.add(p);});(s.dutySku||[]).forEach(d=>{const p=padCode(d.code);if(p)set.add(p);});return set;}
+function costDisplay(){ // ③ 표시 SKU = 전 차수 선적품목 ∪ 수동추가 (source/inLatest 포함)
+  const r=costRoute();const ships=r.shipments||[];const inShip=new Set();
+  ships.forEach(s=>shipmentSkus(s).forEach(c=>inShip.add(c)));
+  const latest=ships.length?shipmentSkus(ships[ships.length-1]):new Set();
+  const out=[],seen=new Set();
+  inShip.forEach(c=>{if(!seen.has(c)){seen.add(c);out.push({code:c,source:'ship',inLatest:latest.has(c)});}});
+  (r.items||[]).forEach(it=>{const c=padCode(it.code);if(c&&!seen.has(c)){seen.add(c);out.push({code:c,source:'manual',inLatest:false});}});
+  return out;
+}
 function costStd(r){
   let cbm=0,sub=0,once=0,n=0;
   (r.shipments||[]).forEach(s=>{const cb=+s.cbm||0;cbm+=cb;sub+=+s.subtotal||0;once+=+s.onceSum||0;if(cb)n++;});
@@ -1215,15 +1224,16 @@ function costCompute(){
   const r=costRoute();const std=costStd(r);
   const rate=COST.mode==='actual'?std.rateActual:std.rateStd;
   const dutyStd=costDutyStd(r);const isHK=COST.route==='HK';
-  const rows=costItems().map(it=>{
-    const p=DB.find(x=>x.code===it.code)||{};
+  const rows=costDisplay().map(d=>{
+    const it={code:d.code};
+    const p=DB.find(x=>x.code===d.code)||{};
     const bcbm=cbm(p.box);const upb=p.unitsPerBox;
     const perEaCbm=(bcbm&&upb)?bcbm/upb:null;
     const freight=(perEaCbm!=null&&rate!=null&&rate>0)?perEaCbm*rate:null;
-    let dutyEa;if(isHK)dutyEa=0;else{const d=dutyStd[padCode(it.code)];dutyEa=(d&&d.perEa!=null)?d.perEa:null;}
+    let dutyEa;if(isHK)dutyEa=0;else{const dd=dutyStd[padCode(d.code)];dutyEa=(dd&&dd.perEa!=null)?dd.perEa:null;}
     const complete=(freight!=null&&dutyEa!=null);
     const total=(freight||0)+(dutyEa||0);
-    return {it,p,bcbm,upb,perEaCbm,freight,dutyEa,isHKfree:isHK,complete,total};
+    return {it,p,bcbm,upb,perEaCbm,freight,dutyEa,isHKfree:isHK,complete,total,source:d.source,inLatest:d.inLatest};
   });
   return {rows,std,rate,dutyStd,isHK};
 }
@@ -1264,21 +1274,21 @@ function renderDuty(){
   el.querySelectorAll('input[data-dfile]').forEach(inp=>inp.addEventListener('change',async e=>{const i=+e.target.dataset.dfile;const f=e.target.files[0];e.target.value='';if(f)await handleDutyReport(i,f);}));
 }
 function renderCostTable(){
-  const el=$('costItems');
-  if(!costItems().length){el.innerHTML='<div class="emptybox">아래 검색으로 SKU를 추가하거나, 대만은 "관세원장 SKU 채우기"를 누르세요.</div>';costRecompute();return;}
-  const rows=costItems().map((it,i)=>{const p=DB.find(x=>x.code===it.code)||{};const nm=p.nameKo||p.nameEn||'<span style="color:var(--amber)">미매칭</span>';
+  const el=$('costItems');const disp=costDisplay();
+  if(!disp.length){el.innerHTML='<div class="emptybox">인보이스를 업로드하면 실린 품목이 자동 표시됩니다. 다른 품목을 더 보려면 아래 검색으로 추가하세요.</div>';costRecompute();return;}
+  const badgeOf=d=>d.source==='manual'?'<span class="badge" style="background:#eee;color:var(--mut)" title="수동 추가(선적 이력 아님)">수동</span>':(!d.inLatest?'<span class="badge" style="background:var(--amberbg);color:var(--amber)" title="이번(최근) 업로드 차수엔 없고, 기존 차수에서 선적된 품목">기존차수</span>':'');
+  const rows=disp.map((d,i)=>{const p=DB.find(x=>x.code===d.code)||{};const nm=p.nameKo||p.nameEn||'<span style="color:var(--amber)">미매칭</span>';
     return `<tr>
-      <td><input class="mono ${p.code?'':'blank'}" style="width:56px" data-ki="${i}" data-f="code" value="${(it.code||'').replace(/"/g,'&quot;')}"></td>
-      <td style="min-width:150px">${nm}</td>
+      <td class="mono">${d.code}</td>
+      <td style="min-width:170px">${nm} ${badgeOf(d)}</td>
       <td class="num mono" id="cv-cbm-${i}">—</td>
       <td class="num mono" id="cv-upb-${i}">—</td>
       <td class="num mono" id="cv-freight-${i}">—</td>
       <td class="num mono" id="cv-duty-${i}">—</td>
       <td class="num mono" id="cv-total-${i}">—</td>
-      <td><button class="rm" data-rk="${i}" title="삭제">✕</button></td></tr>`;}).join('');
+      <td>${d.source==='manual'?`<button class="rm" data-rk="${d.code}" title="목록에서 제거">✕</button>`:''}</td></tr>`;}).join('');
   el.innerHTML=`<div class="cfg"><table class="lines" style="min-width:720px"><thead><tr><th>품번</th><th>품명</th><th>완박CBM</th><th>입수</th><th>운임/EA</th><th>관세/EA</th><th>총 표준착지원가/EA</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  el.querySelectorAll('input[data-ki][data-f="code"]').forEach(inp=>inp.addEventListener('change',e=>{costItems()[+e.target.dataset.ki].code=padCode(e.target.value.trim());saveCostItems();renderCostTable();}));
-  el.querySelectorAll('[data-rk]').forEach(b=>b.onclick=()=>{costItems().splice(+b.dataset.rk,1);saveCostItems();renderCostTable();});
+  el.querySelectorAll('[data-rk]').forEach(b=>b.onclick=()=>{const code=b.dataset.rk;const arr=costItems();const idx=arr.findIndex(i=>i.code===code);if(idx>=0)arr.splice(idx,1);saveCostItems();renderCostTable();});
   costRecompute();
 }
 function costRecompute(){
@@ -1298,17 +1308,18 @@ function costRecompute(){
     if(row.complete)set('cv-total-'+i,'<b style="color:var(--accent)">'+fmt(row.total)+'</b>');
     else{const m=[];if(row.freight==null)m.push('체적/운임');if(row.dutyEa==null)m.push('관세');set('cv-total-'+i,'<span class="miss">▲ '+m.join('·')+'</span>');}
   });
-  if(!costItems().length){$('costSum').innerHTML='';return;}
+  if(!costDisplay().length){$('costSum').innerHTML='';return;}
   $('costSum').innerHTML=`노선 <b>${COST.route}</b> · 모드 <b>${COST.mode==='actual'?'실적':'표준'}</b> · 적용 운임단가 <b>${c.rate!=null?Math.round(c.rate).toLocaleString():'—'}</b> ₩/CBM`+(c.isHK?' · <span style="color:var(--ok)">홍콩 무관세</span>':'');
 }
 function costPickRender(){
   const q=(state.cost.q||'').trim().toLowerCase();const el=$('costPick');
   if(!q){el.innerHTML='';return;}
-  const list=DB.filter(p=>!costItems().some(i=>i.code===p.code)&&(p.code+p.nameKo+(p.nameEn||'')).toLowerCase().includes(q)).slice(0,12);
+  const shown=new Set(costDisplay().map(d=>d.code));
+  const list=DB.filter(p=>!shown.has(p.code)&&(p.code+p.nameKo+(p.nameEn||'')).toLowerCase().includes(q)).slice(0,12);
   el.innerHTML=list.length?list.map(p=>`<span class="p" data-addk="${p.code}"><span class="c">${p.code}</span>${p.nameKo}</span>`).join(''):'<span style="font-size:12px;color:var(--mut)">없음</span>';
   el.querySelectorAll('[data-addk]').forEach(b=>b.onclick=()=>{addCostItem(b.dataset.addk);state.cost.q='';$('k-q').value='';costPickRender();});
 }
-function addCostItem(code){if(costItems().some(i=>i.code===code))return;costItems().push({code});saveCostItems();renderCostTable();}
+function addCostItem(code){code=padCode(code);if(costDisplay().some(d=>d.code===code))return;costItems().push({code});saveCostItems();renderCostTable();}
 function renderCost(){renderLedger();renderDuty();renderCostTable();}
 function costSyncUI(){
   $('k-route').value=COST.route;
@@ -1338,9 +1349,6 @@ function costInit(){
     else{for(const f of files)await handleFreightFile(f);}
   });
   $('k-q').addEventListener('input',e=>{state.cost.q=e.target.value;costPickRender();});
-  $('k-fillSku').onclick=()=>{const r=costRoute();const codes=[...new Set((r.shipments||[]).flatMap(s=>(s.dutySku||[]).map(d=>padCode(d.code))))];
-    if(!codes.length){toast(COST.route==='HK'?'홍콩은 검색으로 SKU를 추가하세요':'관세 원장에 SKU가 없습니다');return;}
-    let n=0;codes.forEach(cd=>{if(!costItems().some(i=>i.code===cd)){costItems().push({code:cd});n++;}});saveCostItems();renderCostTable();toast(n+'개 SKU 반영');};
   $('k-xlsx').onclick=costExport;
 }
 async function parseFreightPdf(data){
@@ -1387,12 +1395,12 @@ async function handleFreightFile(file){
     if(r.subtotal==null){toast('금액(SUBTOTAL)을 못 찾았어요: '+file.name);return;}
     if(!r.currencyOk){toast('원화(KRW) 인보이스가 아닌 듯 — Noatum 코리아 인보이스를 올려주세요: '+(r.invoiceNo||file.name));return;}
     if(r.routeGuess&&COST.routes[r.routeGuess]&&COST.route!==r.routeGuess)COST.route=r.routeGuess;
-    costRoute().shipments.push({id:newShipId(),label:r.invoiceNo||((r.routeGuess||'')+'선적'),date:r.date||'',cbm:r.cbm||'',subtotal:r.freight||'',onceSum:r.once||0,dutySku:[]});
-    // GOODS DESCRIPTION에 품명이 들어있는 SKU를 ③ 표준원가 표에 자동 추가
-    let addedSku=0;
-    if(r.goods){const ng=ciplNorm(r.goods);DB.forEach(p=>{const n=ciplNorm(p.nameEn);if(n&&n.length>=6&&ng.includes(n)&&!costItems().some(it=>it.code===p.code)){costItems().push({code:p.code});addedSku++;}});}
-    saveCost();if(addedSku)saveCostItems();costSyncUI();
-    toast('추가됨: '+(r.invoiceNo||file.name)+' · CBM '+(r.cbm||'?')+' · 선적비 '+(r.freight||0).toLocaleString()+(r.once?(' · 일시 '+r.once.toLocaleString()):'')+(addedSku?(' · SKU '+addedSku+'개 자동표시'):''));
+    // GOODS DESCRIPTION 품명 매칭 → 이 차수의 선적 SKU 목록
+    const skus=[];
+    if(r.goods){const ng=ciplNorm(r.goods);DB.forEach(p=>{const n=ciplNorm(p.nameEn);if(n&&n.length>=6&&ng.includes(n))skus.push(p.code);});}
+    costRoute().shipments.push({id:newShipId(),label:r.invoiceNo||((r.routeGuess||'')+'선적'),date:r.date||'',cbm:r.cbm||'',subtotal:r.freight||'',onceSum:r.once||0,skus,dutySku:[]});
+    saveCost();costSyncUI();
+    toast('추가됨: '+(r.invoiceNo||file.name)+' · CBM '+(r.cbm||'?')+' · 선적비 '+(r.freight||0).toLocaleString()+(r.once?(' · 일시 '+r.once.toLocaleString()):'')+(skus.length?(' · SKU '+skus.length+'개 자동표시'):''));
   }catch(err){console.error(err);toast('인보이스 파싱 오류: '+(err.message||err));}
 }
 async function parseDutyReport(data, codeOf){
@@ -1429,9 +1437,9 @@ async function handleDutyReport(i,file){
     const res=await parseDutyReport(new Uint8Array(buf), name=>ciplMatch(name,''));
     if(!res.bySku.length){toast('報單에서 품목을 못 찾았어요: '+file.name);return;}
     s.dutySku=res.bySku.map(x=>({code:x.code,ea:x.ea,duty:Math.round(x.dutyTwd*fx)}));
-    res.bySku.forEach(x=>{if(x.code&&!costItems().some(it=>it.code===x.code))costItems().push({code:x.code});}); // ③ 표준원가 표에 자동 추가
+    s.skus=[...new Set([...(s.skus||[]),...res.bySku.map(x=>x.code).filter(Boolean)])]; // 이 차수 선적품목에 반영
     const twd=res.bySku.reduce((a,b)=>a+b.dutyTwd,0);const unmatched=res.bySku.filter(x=>!x.code).length;
-    saveCost();saveCostItems();renderDuty();renderCostTable();
+    saveCost();renderDuty();renderCostTable();
     toast('報單 반영: 관세 '+twd.toLocaleString()+' TWD × '+fx+' = '+Math.round(twd*fx).toLocaleString()+'원 (營業稅 제외)'+(unmatched?(' · 미매칭 '+unmatched+'건 품번 확인'):''));
   }catch(err){console.error(err);toast('報單 파싱 오류: '+(err.message||err));}
 }
