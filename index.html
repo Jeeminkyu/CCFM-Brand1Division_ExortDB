@@ -493,12 +493,12 @@ const NAME_FIX={};
 let DB=[], COUNTRIES=[], state={q:'',qhs:'',brand:'all',sort:'code',dir:1,editIdx:-1,optCols:{nameEn:false,nameZh:false,maker:false,cbm:false},boxq:'',boxItems:[],pallet:{consignor:'',consignee:'',po:'',item:''},pallets:[{weight:''}],ciplq:'',cipl:{hdr:{invNo:'',invDate:'',destCountry:'TW',consignee:'',notify:'Same as Consignee',incoterms:'DDP',pol:'BUSAN PORT',dest:'TAIWAN',carrier:'',sailing:'',lc:'',lcbank:'',currency:'USD',shipper:''},doc:'ci',items:[]},cost:{q:'',items:[]}};
 // ---- 선적원가(landed cost) 파라미터: 노선별 저장 (인계문서 §2.2 기준) ----
 // 노선별 "차수 원장" 누적 → 단일 ₩/CBM 표준운임 수렴. shipments[]: {id,label,date,cbm,subtotal,onceSum,dutySku:[{code,ea,duty}]}
-const DEF_COST={route:'TW',mode:'standard',routes:{TW:{shipments:[]},HK:{shipments:[]}}};
+const DEF_COST={route:'TW',mode:'standard',routes:{TW:{shipments:[],items:[]},HK:{shipments:[],items:[]}}};
 let COST=structuredClone(DEF_COST); let _sid=0;
 function newShipId(){return 's'+Date.now().toString(36)+'_'+(_sid++);}
 function mergeCost(o){const base=structuredClone(DEF_COST);if(!o)return base;
   if(o.route)base.route=o.route;if(o.mode)base.mode=o.mode;
-  ['TW','HK'].forEach(k=>{const src=o.routes&&o.routes[k];if(src&&Array.isArray(src.shipments))base.routes[k].shipments=src.shipments;});
+  ['TW','HK'].forEach(k=>{const src=o.routes&&o.routes[k];if(!src)return;if(Array.isArray(src.shipments))base.routes[k].shipments=src.shipments;if(Array.isArray(src.items))base.routes[k].items=src.items;});
   return base;}
 const CONSIGNEES={TW:'Company : Gaozhi Biotech Co., Ltd.\nAddress : 11 F., No. 122, Songjiang Rd., Zhongshan Dist., Taipei City 104092, Taiwan\n',HK:'Company : MELABLE HK LIMITED\nAddress : Unit B, 17/F., United Centre, 95 Queensway, Admiralty, Hong Kong\n'};
 const $=id=>document.getElementById(id);
@@ -519,7 +519,7 @@ function load(){
   try{const r=localStorage.getItem(KEY);DB=r?JSON.parse(r):structuredClone(SEED);}catch(e){DB=structuredClone(SEED);}
   try{const c=localStorage.getItem(CKEY);COUNTRIES=c?JSON.parse(c):structuredClone(DEF_COUNTRIES);}catch(e){COUNTRIES=structuredClone(DEF_COUNTRIES);}
   try{const cs=localStorage.getItem('scm_cost_v1');COST=mergeCost(cs?JSON.parse(cs):null);}catch(e){COST=structuredClone(DEF_COST);}
-  try{const ci=localStorage.getItem('scm_cost_items_v1');state.cost.items=ci?(JSON.parse(ci)||[]):[];}catch(e){state.cost.items=[];}
+  try{['TW','HK'].forEach(k=>{const rt=COST.routes[k];if(rt&&(!Array.isArray(rt.items)||!rt.items.length)){const codes=[...new Set((rt.shipments||[]).flatMap(s=>(s.dutySku||[]).map(d=>padCode(d.code))))].filter(Boolean);rt.items=codes.map(c=>({code:c}));}});}catch(e){}
   const before=DB.length;normalizeDB();if(DB.length!==before)localStorage.setItem(KEY,JSON.stringify(DB));
   // migrate old localStorage TW codes to official declaration values (preserve manual edits)
   const sv=+(localStorage.getItem(SVKEY)||1);let changed=false;
@@ -532,7 +532,7 @@ function load(){
 function save(){localStorage.setItem(KEY,JSON.stringify(DB));scheduleCloud();}
 function saveCountries(){localStorage.setItem(CKEY,JSON.stringify(COUNTRIES));scheduleCloud();}
 function saveCost(){localStorage.setItem('scm_cost_v1',JSON.stringify(COST));scheduleCloud();}
-function saveCostItems(){localStorage.setItem('scm_cost_items_v1',JSON.stringify(state.cost.items));}
+function saveCostItems(){saveCost();} // 노선별 items는 COST에 포함 → 클라우드 저장
 // ---- Supabase cloud sync ----
 let SB_URL=localStorage.getItem('sb_url')||'https://euekgawqhxenvhktlnsh.supabase.co', SB_KEY=localStorage.getItem('sb_key')||'sb_publishable_SdwyZtmiTyFqMiUQKkjCQA_AqJP2ogH', cloudT=null, cloudBusy=false, cloudInit=false, sbClient=null, sbUser=null;
 function sbReady(){return !!(SB_URL&&SB_KEY&&sbClient);}
@@ -1199,6 +1199,7 @@ function renderCipl(){renderCiplItems();renderCiplTotals();renderCiplPreview();b
 
 /* ---- 선적원가 (landed cost) : 단일 ₩/CBM 운임 + 대만 관세 ---- */
 function costRoute(){return COST.routes[COST.route]||COST.routes.TW;}
+function costItems(){const r=costRoute();if(!Array.isArray(r.items))r.items=[];return r.items;} // 노선별 SKU 목록
 function costStd(r){
   let cbm=0,sub=0,once=0,n=0;
   (r.shipments||[]).forEach(s=>{const cb=+s.cbm||0;cbm+=cb;sub+=+s.subtotal||0;once+=+s.onceSum||0;if(cb)n++;});
@@ -1214,7 +1215,7 @@ function costCompute(){
   const r=costRoute();const std=costStd(r);
   const rate=COST.mode==='actual'?std.rateActual:std.rateStd;
   const dutyStd=costDutyStd(r);const isHK=COST.route==='HK';
-  const rows=state.cost.items.map(it=>{
+  const rows=costItems().map(it=>{
     const p=DB.find(x=>x.code===it.code)||{};
     const bcbm=cbm(p.box);const upb=p.unitsPerBox;
     const perEaCbm=(bcbm&&upb)?bcbm/upb:null;
@@ -1264,8 +1265,8 @@ function renderDuty(){
 }
 function renderCostTable(){
   const el=$('costItems');
-  if(!state.cost.items.length){el.innerHTML='<div class="emptybox">아래 검색으로 SKU를 추가하거나, 대만은 "관세원장 SKU 채우기"를 누르세요.</div>';costRecompute();return;}
-  const rows=state.cost.items.map((it,i)=>{const p=DB.find(x=>x.code===it.code)||{};const nm=p.nameKo||p.nameEn||'<span style="color:var(--amber)">미매칭</span>';
+  if(!costItems().length){el.innerHTML='<div class="emptybox">아래 검색으로 SKU를 추가하거나, 대만은 "관세원장 SKU 채우기"를 누르세요.</div>';costRecompute();return;}
+  const rows=costItems().map((it,i)=>{const p=DB.find(x=>x.code===it.code)||{};const nm=p.nameKo||p.nameEn||'<span style="color:var(--amber)">미매칭</span>';
     return `<tr>
       <td><input class="mono ${p.code?'':'blank'}" style="width:56px" data-ki="${i}" data-f="code" value="${(it.code||'').replace(/"/g,'&quot;')}"></td>
       <td style="min-width:150px">${nm}</td>
@@ -1276,8 +1277,8 @@ function renderCostTable(){
       <td class="num mono" id="cv-total-${i}">—</td>
       <td><button class="rm" data-rk="${i}" title="삭제">✕</button></td></tr>`;}).join('');
   el.innerHTML=`<div class="cfg"><table class="lines" style="min-width:720px"><thead><tr><th>품번</th><th>품명</th><th>완박CBM</th><th>입수</th><th>운임/EA</th><th>관세/EA</th><th>총 표준착지원가/EA</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
-  el.querySelectorAll('input[data-ki][data-f="code"]').forEach(inp=>inp.addEventListener('change',e=>{state.cost.items[+e.target.dataset.ki].code=padCode(e.target.value.trim());saveCostItems();renderCostTable();}));
-  el.querySelectorAll('[data-rk]').forEach(b=>b.onclick=()=>{state.cost.items.splice(+b.dataset.rk,1);saveCostItems();renderCostTable();});
+  el.querySelectorAll('input[data-ki][data-f="code"]').forEach(inp=>inp.addEventListener('change',e=>{costItems()[+e.target.dataset.ki].code=padCode(e.target.value.trim());saveCostItems();renderCostTable();}));
+  el.querySelectorAll('[data-rk]').forEach(b=>b.onclick=()=>{costItems().splice(+b.dataset.rk,1);saveCostItems();renderCostTable();});
   costRecompute();
 }
 function costRecompute(){
@@ -1297,17 +1298,17 @@ function costRecompute(){
     if(row.complete)set('cv-total-'+i,'<b style="color:var(--accent)">'+fmt(row.total)+'</b>');
     else{const m=[];if(row.freight==null)m.push('체적/운임');if(row.dutyEa==null)m.push('관세');set('cv-total-'+i,'<span class="miss">▲ '+m.join('·')+'</span>');}
   });
-  if(!state.cost.items.length){$('costSum').innerHTML='';return;}
+  if(!costItems().length){$('costSum').innerHTML='';return;}
   $('costSum').innerHTML=`노선 <b>${COST.route}</b> · 모드 <b>${COST.mode==='actual'?'실적':'표준'}</b> · 적용 운임단가 <b>${c.rate!=null?Math.round(c.rate).toLocaleString():'—'}</b> ₩/CBM`+(c.isHK?' · <span style="color:var(--ok)">홍콩 무관세</span>':'');
 }
 function costPickRender(){
   const q=(state.cost.q||'').trim().toLowerCase();const el=$('costPick');
   if(!q){el.innerHTML='';return;}
-  const list=DB.filter(p=>!state.cost.items.some(i=>i.code===p.code)&&(p.code+p.nameKo+(p.nameEn||'')).toLowerCase().includes(q)).slice(0,12);
+  const list=DB.filter(p=>!costItems().some(i=>i.code===p.code)&&(p.code+p.nameKo+(p.nameEn||'')).toLowerCase().includes(q)).slice(0,12);
   el.innerHTML=list.length?list.map(p=>`<span class="p" data-addk="${p.code}"><span class="c">${p.code}</span>${p.nameKo}</span>`).join(''):'<span style="font-size:12px;color:var(--mut)">없음</span>';
   el.querySelectorAll('[data-addk]').forEach(b=>b.onclick=()=>{addCostItem(b.dataset.addk);state.cost.q='';$('k-q').value='';costPickRender();});
 }
-function addCostItem(code){if(state.cost.items.some(i=>i.code===code))return;state.cost.items.push({code});saveCostItems();renderCostTable();}
+function addCostItem(code){if(costItems().some(i=>i.code===code))return;costItems().push({code});saveCostItems();renderCostTable();}
 function renderCost(){renderLedger();renderDuty();renderCostTable();}
 function costSyncUI(){
   $('k-route').value=COST.route;
@@ -1339,7 +1340,7 @@ function costInit(){
   $('k-q').addEventListener('input',e=>{state.cost.q=e.target.value;costPickRender();});
   $('k-fillSku').onclick=()=>{const r=costRoute();const codes=[...new Set((r.shipments||[]).flatMap(s=>(s.dutySku||[]).map(d=>padCode(d.code))))];
     if(!codes.length){toast(COST.route==='HK'?'홍콩은 검색으로 SKU를 추가하세요':'관세 원장에 SKU가 없습니다');return;}
-    let n=0;codes.forEach(cd=>{if(!state.cost.items.some(i=>i.code===cd)){state.cost.items.push({code:cd});n++;}});saveCostItems();renderCostTable();toast(n+'개 SKU 반영');};
+    let n=0;codes.forEach(cd=>{if(!costItems().some(i=>i.code===cd)){costItems().push({code:cd});n++;}});saveCostItems();renderCostTable();toast(n+'개 SKU 반영');};
   $('k-xlsx').onclick=costExport;
 }
 async function parseFreightPdf(data){
@@ -1389,7 +1390,7 @@ async function handleFreightFile(file){
     costRoute().shipments.push({id:newShipId(),label:r.invoiceNo||((r.routeGuess||'')+'선적'),date:r.date||'',cbm:r.cbm||'',subtotal:r.freight||'',onceSum:r.once||0,dutySku:[]});
     // GOODS DESCRIPTION에 품명이 들어있는 SKU를 ③ 표준원가 표에 자동 추가
     let addedSku=0;
-    if(r.goods){const ng=ciplNorm(r.goods);DB.forEach(p=>{const n=ciplNorm(p.nameEn);if(n&&n.length>=6&&ng.includes(n)&&!state.cost.items.some(it=>it.code===p.code)){state.cost.items.push({code:p.code});addedSku++;}});}
+    if(r.goods){const ng=ciplNorm(r.goods);DB.forEach(p=>{const n=ciplNorm(p.nameEn);if(n&&n.length>=6&&ng.includes(n)&&!costItems().some(it=>it.code===p.code)){costItems().push({code:p.code});addedSku++;}});}
     saveCost();if(addedSku)saveCostItems();costSyncUI();
     toast('추가됨: '+(r.invoiceNo||file.name)+' · CBM '+(r.cbm||'?')+' · 선적비 '+(r.freight||0).toLocaleString()+(r.once?(' · 일시 '+r.once.toLocaleString()):'')+(addedSku?(' · SKU '+addedSku+'개 자동표시'):''));
   }catch(err){console.error(err);toast('인보이스 파싱 오류: '+(err.message||err));}
@@ -1428,7 +1429,7 @@ async function handleDutyReport(i,file){
     const res=await parseDutyReport(new Uint8Array(buf), name=>ciplMatch(name,''));
     if(!res.bySku.length){toast('報單에서 품목을 못 찾았어요: '+file.name);return;}
     s.dutySku=res.bySku.map(x=>({code:x.code,ea:x.ea,duty:Math.round(x.dutyTwd*fx)}));
-    res.bySku.forEach(x=>{if(x.code&&!state.cost.items.some(it=>it.code===x.code))state.cost.items.push({code:x.code});}); // ③ 표준원가 표에 자동 추가
+    res.bySku.forEach(x=>{if(x.code&&!costItems().some(it=>it.code===x.code))costItems().push({code:x.code});}); // ③ 표준원가 표에 자동 추가
     const twd=res.bySku.reduce((a,b)=>a+b.dutyTwd,0);const unmatched=res.bySku.filter(x=>!x.code).length;
     saveCost();saveCostItems();renderDuty();renderCostTable();
     toast('報單 반영: 관세 '+twd.toLocaleString()+' TWD × '+fx+' = '+Math.round(twd*fx).toLocaleString()+'원 (營業稅 제외)'+(unmatched?(' · 미매칭 '+unmatched+'건 품번 확인'):''));
