@@ -1418,8 +1418,9 @@ async function handleDutyReport(i,file){
     const res=await parseDutyReport(new Uint8Array(buf), name=>ciplMatch(name,''));
     if(!res.bySku.length){toast('報單에서 품목을 못 찾았어요: '+file.name);return;}
     s.dutySku=res.bySku.map(x=>({code:x.code,ea:x.ea,duty:Math.round(x.dutyTwd*fx)}));
+    res.bySku.forEach(x=>{if(x.code&&!state.cost.items.some(it=>it.code===x.code))state.cost.items.push({code:x.code});}); // ③ 표준원가 표에 자동 추가
     const twd=res.bySku.reduce((a,b)=>a+b.dutyTwd,0);const unmatched=res.bySku.filter(x=>!x.code).length;
-    saveCost();renderDuty();costRecompute();
+    saveCost();saveCostItems();renderDuty();renderCostTable();
     toast('報單 반영: 관세 '+twd.toLocaleString()+' TWD × '+fx+' = '+Math.round(twd*fx).toLocaleString()+'원 (營業稅 제외)'+(unmatched?(' · 미매칭 '+unmatched+'건 품번 확인'):''));
   }catch(err){console.error(err);toast('報單 파싱 오류: '+(err.message||err));}
 }
