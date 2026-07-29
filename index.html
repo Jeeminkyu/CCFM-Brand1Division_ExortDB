@@ -1350,7 +1350,7 @@ async function parseFreightPdf(data){
     const map={};
     for(const it of tc.items){if(!it.str.trim())continue;const x=it.transform[4],y=Math.round(it.transform[5]);
       let key=null;for(const k in map){if(Math.abs(+k-y)<=3){key=k;break;}}if(key===null)key=y;(map[key]=map[key]||[]).push({x,s:it.str});}
-    for(const y in map)rowsAll.push({page:p,items:map[y].sort((a,b)=>a.x-b.x)});
+    for(const y in map)rowsAll.push({page:p,y:+y,items:map[y].sort((a,b)=>a.x-b.x)});
   }
   const txt=r=>r.items.map(i=>i.s).join(' ');
   const isNum=s=>/^-?\d[\d,]*(\.\d+)?$/.test(String(s).trim());
@@ -1370,7 +1370,14 @@ async function parseFreightPdf(data){
   const dateM=full.match(/INVOICE DATE\s+(\d{1,2}-[A-Za-z]{3}-\d{2})/);
   const invM=full.match(/INVOICE\s+([A-Z]{3}\d{6,})/);
   const currencyOk=(subtotal!=null&&Number.isInteger(subtotal)&&subtotal>10000);
-  return {cbm,subtotal,once,freight:subtotal!=null?subtotal-once:null,onceItems,routeGuess,invoiceNo:invM?invM[1]:null,date:dateM?dateM[1]:null,currencyOk};
+  // GOODS DESCRIPTION(품목 목록) 텍스트 — 실린 SKU 자동 판별용
+  let yGoods=null,gp=null,yBroker=null;
+  for(const r of rowsAll){if(/GOODS DESCRIPTION/i.test(txt(r))){yGoods=r.y;gp=r.page;}}
+  if(yGoods!=null){for(const r of rowsAll){if(r.page===gp&&r.y<yGoods&&/CHARGEABLE|IMPORT CUSTOMS BROKER/i.test(txt(r))){if(yBroker==null||r.y>yBroker)yBroker=r.y;}}}
+  let goods='';
+  if(yGoods!=null)for(const r of rowsAll){if(r.page===gp&&r.y<yGoods&&(yBroker==null||r.y>yBroker))goods+=' '+txt(r);}
+  goods=goods.replace(/\s+/g,' ').trim();
+  return {cbm,subtotal,once,freight:subtotal!=null?subtotal-once:null,onceItems,routeGuess,invoiceNo:invM?invM[1]:null,date:dateM?dateM[1]:null,currencyOk,goods};
 }
 async function handleFreightFile(file){
   try{
@@ -1380,8 +1387,11 @@ async function handleFreightFile(file){
     if(!r.currencyOk){toast('원화(KRW) 인보이스가 아닌 듯 — Noatum 코리아 인보이스를 올려주세요: '+(r.invoiceNo||file.name));return;}
     if(r.routeGuess&&COST.routes[r.routeGuess]&&COST.route!==r.routeGuess)COST.route=r.routeGuess;
     costRoute().shipments.push({id:newShipId(),label:r.invoiceNo||((r.routeGuess||'')+'선적'),date:r.date||'',cbm:r.cbm||'',subtotal:r.freight||'',onceSum:r.once||0,dutySku:[]});
-    saveCost();costSyncUI();
-    toast('추가됨: '+(r.invoiceNo||file.name)+' · CBM '+(r.cbm||'?')+' · 선적비 '+(r.freight||0).toLocaleString()+(r.once?(' · 일시 '+r.once.toLocaleString()):''));
+    // GOODS DESCRIPTION에 품명이 들어있는 SKU를 ③ 표준원가 표에 자동 추가
+    let addedSku=0;
+    if(r.goods){const ng=ciplNorm(r.goods);DB.forEach(p=>{const n=ciplNorm(p.nameEn);if(n&&n.length>=6&&ng.includes(n)&&!state.cost.items.some(it=>it.code===p.code)){state.cost.items.push({code:p.code});addedSku++;}});}
+    saveCost();if(addedSku)saveCostItems();costSyncUI();
+    toast('추가됨: '+(r.invoiceNo||file.name)+' · CBM '+(r.cbm||'?')+' · 선적비 '+(r.freight||0).toLocaleString()+(r.once?(' · 일시 '+r.once.toLocaleString()):'')+(addedSku?(' · SKU '+addedSku+'개 자동표시'):''));
   }catch(err){console.error(err);toast('인보이스 파싱 오류: '+(err.message||err));}
 }
 async function parseDutyReport(data, codeOf){
