@@ -358,14 +358,9 @@ td.hsin input.blank{background:var(--amberbg)}
       <span style="font-size:11.5px;color:var(--mut)">차수가 쌓일수록 표준원가가 수렴합니다 · 표준 = 일시비 제외 · 실적 = 일시비 포함</span>
       <button class="btn" id="k-xlsx" style="margin-left:auto">엑셀 내보내기</button>
     </div>
-    <h3 style="font-size:13px;color:var(--ink2);margin:6px 0 8px;font-weight:600">① 운임 차수 원장 <span style="font-weight:400;color:var(--mut)">— 선적마다 인보이스 요약(CBM·변동·고정·일시)을 추가</span> <button class="btnxs" id="k-addShip" style="margin-left:8px">+ 차수 추가</button></h3>
+    <h3 style="font-size:13px;color:var(--ink2);margin:6px 0 8px;font-weight:600">① 운임 차수 원장 <span style="font-weight:400;color:var(--mut)">— 선적마다 인보이스 요약(CBM·선적비·일시비)을 추가</span> <button class="btnxs" id="k-addShip" style="margin-left:8px">+ 차수 추가</button></h3>
     <div id="costLedger"></div>
     <div class="stats" id="costStd"></div>
-    <div class="phdr" id="costParams" style="grid-template-columns:repeat(3,1fr);margin-top:12px">
-      <div class="fld"><label>팔레타이징 할증계수</label><input class="mono" id="k-palletizing"></div>
-      <div class="fld"><label>연간 예상 선적건수</label><input class="mono" id="k-annShip" placeholder="미입력 시 고정비 보류"></div>
-      <div class="fld"><label>연간 예상 총출고수량 (EA)</label><input class="mono" id="k-annEa" placeholder="미입력 시 고정비 보류"></div>
-    </div>
     <div id="costDutyWrap">
       <h3 style="font-size:13px;color:var(--ink2);margin:16px 0 8px;font-weight:600">② 관세 원장 (대만) <span style="font-weight:400;color:var(--mut)">— 進口報單의 SKU별 확정관세(₩, 營業稅 제외)를 차수별로 누적</span></h3>
       <div id="costDuty"></div>
@@ -379,7 +374,7 @@ td.hsin input.blank{background:var(--amberbg)}
     <div id="costItems"></div>
     <div class="stats" id="costSum"></div>
     <p style="font-size:12px;color:var(--mut);max-width:960px;margin-top:8px">
-      표준 변동단가 = <b>Σ변동합계 ÷ Σ CBM</b>(물량가중) · 표준 건당고정비 = <b>Σ고정합계 ÷ 차수수</b>. 차수를 추가할수록 두 값이 실제에 수렴합니다. 홍콩은 <b>무관세</b>라 관세 원장이 숨겨지고 운임만 반영됩니다. 대만은 <b>進口報單</b>의 SKU별 관세를 차수마다 넣으면 관세/EA가 종가세 기준으로 수렴합니다. 완박 체적·연간 물량이 없으면 해당 레이어는 <span class="miss">▲</span>로 보류됩니다.
+      표준 운임단가 = <b>Σ선적비 ÷ Σ CBM</b>(물량가중, VAT·일시비 제외). 차수를 추가할수록 실제에 수렴합니다. SKU 운임/EA = (완박CBM ÷ 입수) × 표준단가. 홍콩은 <b>무관세</b>라 관세 원장이 숨겨지고 운임만 반영됩니다. 대만은 <b>進口報單</b>의 SKU별 관세(₩, 營業稅 제외)를 차수마다 넣으면 관세/EA가 종가세 기준으로 수렴합니다. 완박 체적이 없으면 해당 SKU는 <span class="miss">▲</span>로 보류됩니다.
     </p>
   </section>
 </main>
@@ -493,18 +488,13 @@ const TW_FIX={};
 const NAME_FIX={};
 let DB=[], COUNTRIES=[], state={q:'',qhs:'',brand:'all',sort:'code',dir:1,editIdx:-1,optCols:{nameEn:false,nameZh:false,maker:false,cbm:false},boxq:'',boxItems:[],pallet:{consignor:'',consignee:'',po:'',item:''},pallets:[{weight:''}],ciplq:'',cipl:{hdr:{invNo:'',invDate:'',destCountry:'TW',consignee:'',notify:'Same as Consignee',incoterms:'DDP',pol:'BUSAN PORT',dest:'TAIWAN',carrier:'',sailing:'',lc:'',lcbank:'',currency:'USD',shipper:''},doc:'ci',items:[]},cost:{q:'',items:[]}};
 // ---- 선적원가(landed cost) 파라미터: 노선별 저장 (인계문서 §2.2 기준) ----
-// 노선별 "차수 원장" 누적 → 표준원가 수렴. shipments[]: {id,label,date,cbm,varSum,fixSum,onceSum,dutySku:[{code,ea,duty}]}
-const DEF_COST={route:'TW',mode:'standard',routes:{
-  TW:{palletizing:1.63,annShip:'',annEa:'',shipments:[]},
-  HK:{palletizing:1.63,annShip:'',annEa:'',shipments:[]}
-}};
+// 노선별 "차수 원장" 누적 → 단일 ₩/CBM 표준운임 수렴. shipments[]: {id,label,date,cbm,subtotal,onceSum,dutySku:[{code,ea,duty}]}
+const DEF_COST={route:'TW',mode:'standard',routes:{TW:{shipments:[]},HK:{shipments:[]}}};
 let COST=structuredClone(DEF_COST); let _sid=0;
 function newShipId(){return 's'+Date.now().toString(36)+'_'+(_sid++);}
 function mergeCost(o){const base=structuredClone(DEF_COST);if(!o)return base;
   if(o.route)base.route=o.route;if(o.mode)base.mode=o.mode;
-  ['TW','HK'].forEach(k=>{const src=o.routes&&o.routes[k];if(!src)return;const d=base.routes[k];
-    ['palletizing','annShip','annEa'].forEach(f=>{if(src[f]!==undefined&&src[f]!=='')d[f]=src[f];});
-    if(Array.isArray(src.shipments))d.shipments=src.shipments;});
+  ['TW','HK'].forEach(k=>{const src=o.routes&&o.routes[k];if(src&&Array.isArray(src.shipments))base.routes[k].shipments=src.shipments;});
   return base;}
 const CONSIGNEES={TW:'Company : Gaozhi Biotech Co., Ltd.\nAddress : 11 F., No. 122, Songjiang Rd., Zhongshan Dist., Taipei City 104092, Taiwan\n',HK:'Company : MELABLE HK LIMITED\nAddress : Unit B, 17/F., United Centre, 95 Queensway, Admiralty, Hong Kong\n'};
 const $=id=>document.getElementById(id);
@@ -1203,15 +1193,14 @@ function ciplExport(){
 function printCipl(){let st=document.getElementById('printoff');if(!st){st=document.createElement('style');st.id='printoff';document.head.appendChild(st);}st.textContent='@media print{@page{size:A4 portrait;margin:10mm}}';document.body.classList.add('pc');window.print();}
 function renderCipl(){renderCiplItems();renderCiplTotals();renderCiplPreview();batchTouch();}
 
-/* ---- 선적원가 (landed cost) : 차수 원장 누적 → 표준원가 수렴 ---- */
+/* ---- 선적원가 (landed cost) : 단일 ₩/CBM 운임 + 대만 관세 ---- */
 function costRoute(){return COST.routes[COST.route]||COST.routes.TW;}
 function costStd(r){
-  let cbm=0,varS=0,fixS=0,onceS=0,n=0;
-  (r.shipments||[]).forEach(s=>{const cb=+s.cbm||0;cbm+=cb;varS+=+s.varSum||0;fixS+=+s.fixSum||0;onceS+=+s.onceSum||0;if(cb||(+s.fixSum))n++;});
-  return {cbm,varS,fixS,onceS,n,
-    rateStd:cbm?varS/cbm:null, rateActual:cbm?(varS+onceS)/cbm:null, fixShip:n?fixS/n:null};
+  let cbm=0,sub=0,once=0,n=0;
+  (r.shipments||[]).forEach(s=>{const cb=+s.cbm||0;cbm+=cb;sub+=+s.subtotal||0;once+=+s.onceSum||0;if(cb)n++;});
+  return {cbm,sub,once,n, rateStd:cbm?sub/cbm:null, rateActual:cbm?(sub+once)/cbm:null};
 }
-function costDutyStd(r){ // code -> {ea,duty,perEa} pooled across 차수
+function costDutyStd(r){ // code -> {ea,duty,perEa} pooled across 차수 (종가세라 EA당으로 수렴)
   const m={};
   (r.shipments||[]).forEach(s=>{(s.dutySku||[]).forEach(d=>{const c=padCode(d.code);if(!c)return;if(!m[c])m[c]={ea:0,duty:0};m[c].ea+=+d.ea||0;m[c].duty+=+d.duty||0;});});
   Object.values(m).forEach(v=>v.perEa=v.ea?v.duty/v.ea:null);
@@ -1220,35 +1209,32 @@ function costDutyStd(r){ // code -> {ea,duty,perEa} pooled across 차수
 function costCompute(){
   const r=costRoute();const std=costStd(r);
   const rate=COST.mode==='actual'?std.rateActual:std.rateStd;
-  const pf=+r.palletizing||1;
-  const fixEa=(std.fixShip!=null&&+r.annShip>0&&+r.annEa>0)?(std.fixShip*(+r.annShip))/(+r.annEa):null;
   const dutyStd=costDutyStd(r);const isHK=COST.route==='HK';
   const rows=state.cost.items.map(it=>{
     const p=DB.find(x=>x.code===it.code)||{};
     const bcbm=cbm(p.box);const upb=p.unitsPerBox;
     const perEaCbm=(bcbm&&upb)?bcbm/upb:null;
-    const fVar=(perEaCbm!=null&&rate!=null&&rate>0)?perEaCbm*rate*pf:null;
+    const freight=(perEaCbm!=null&&rate!=null&&rate>0)?perEaCbm*rate:null;
     let dutyEa;if(isHK)dutyEa=0;else{const d=dutyStd[padCode(it.code)];dutyEa=(d&&d.perEa!=null)?d.perEa:null;}
-    const complete=(fVar!=null&&fixEa!=null&&dutyEa!=null);
-    const total=(fVar||0)+(fixEa||0)+(dutyEa||0);
-    return {it,p,bcbm,upb,fVar,fixEa,dutyEa,isHKfree:isHK,complete,total};
+    const complete=(freight!=null&&dutyEa!=null);
+    const total=(freight||0)+(dutyEa||0);
+    return {it,p,bcbm,upb,perEaCbm,freight,dutyEa,isHKfree:isHK,complete,total};
   });
-  return {rows,std,rate,fixEa,dutyStd,isHK};
+  return {rows,std,rate,dutyStd,isHK};
 }
 function renderLedger(){
   const r=costRoute();const el=$('costLedger');const sh=r.shipments||[];
-  if(!sh.length){el.innerHTML='<div class="emptybox">+ 차수 추가로 선적 인보이스 요약(CBM·변동합계·고정합계·일시합계)을 넣으세요.</div>';return;}
+  if(!sh.length){el.innerHTML='<div class="emptybox">+ 차수 추가로 선적 인보이스 요약(CBM·선적비·일시비)을 넣으세요.</div>';return;}
   const rows=sh.map((s,i)=>`<tr>
-    <td><input style="width:92px" data-si="${i}" data-f="label" value="${(s.label||'').replace(/"/g,'&quot;')}" placeholder="대만2차"></td>
-    <td><input class="mono" style="width:98px" data-si="${i}" data-f="date" value="${(s.date||'').replace(/"/g,'&quot;')}" placeholder="2026-06-26"></td>
-    <td><input class="mono" style="width:80px" type="number" step="0.001" data-si="${i}" data-f="cbm" value="${s.cbm??''}"></td>
-    <td><input class="mono" style="width:104px" type="number" data-si="${i}" data-f="varSum" value="${s.varSum??''}"></td>
-    <td><input class="mono" style="width:104px" type="number" data-si="${i}" data-f="fixSum" value="${s.fixSum??''}"></td>
-    <td><input class="mono" style="width:104px" type="number" data-si="${i}" data-f="onceSum" value="${s.onceSum??''}"></td>
+    <td><input style="width:96px" data-si="${i}" data-f="label" value="${(s.label||'').replace(/"/g,'&quot;')}" placeholder="홍콩1차"></td>
+    <td><input class="mono" style="width:96px" data-si="${i}" data-f="date" value="${(s.date||'').replace(/"/g,'&quot;')}" placeholder="2026-02"></td>
+    <td><input class="mono" style="width:84px" type="number" step="0.001" data-si="${i}" data-f="cbm" value="${s.cbm??''}"></td>
+    <td><input class="mono" style="width:112px" type="number" data-si="${i}" data-f="subtotal" value="${s.subtotal??''}"></td>
+    <td><input class="mono" style="width:100px" type="number" data-si="${i}" data-f="onceSum" value="${s.onceSum??''}"></td>
     <td class="num mono" id="lv-rate-${i}">—</td>
     <td><button class="rm" data-rsi="${i}" title="차수 삭제">✕</button></td>
   </tr>`).join('');
-  el.innerHTML=`<div class="cfg"><table class="lines" style="min-width:860px"><thead><tr><th>차수</th><th>ETD/날짜</th><th>Chargeable CBM</th><th>변동합계₩</th><th>고정합계₩</th><th>일시합계₩</th><th>변동단가₩/CBM</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  el.innerHTML=`<div class="cfg"><table class="lines" style="min-width:760px"><thead><tr><th>차수</th><th>날짜</th><th>Chargeable CBM</th><th>선적비₩ (VAT·일시 제외)</th><th>일시비₩ (실적용)</th><th>₩/CBM</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
   el.querySelectorAll('input[data-si]').forEach(inp=>inp.addEventListener('input',e=>{const i=+e.target.dataset.si,f=e.target.dataset.f;r.shipments[i][f]=e.target.value;saveCost();costRecompute();}));
   el.querySelectorAll('[data-rsi]').forEach(b=>b.onclick=()=>{if(confirm('이 차수를 삭제할까요?')){r.shipments.splice(+b.dataset.rsi,1);saveCost();renderCost();}});
 }
@@ -1260,8 +1246,8 @@ function renderDuty(){
   if(!sh.length){el.innerHTML='<div class="emptybox">먼저 운임 차수를 추가하면, 차수별로 進口報單 관세를 넣을 수 있습니다.</div>';return;}
   el.innerHTML=sh.map((s,i)=>{
     const txt=(s.dutySku||[]).map(d=>`${d.code}, ${d.ea}, ${d.duty}`).join('\n');
-    return `<div class="pcard"><div class="phead"><span class="code">${s.label||('차수 '+(i+1))}</span><span class="u">한 줄에 "품번, EA, 관세액(₩)" — 例) 00011, 3000, 1090700</span></div>
-      <div style="padding:10px 14px"><textarea data-dsi="${i}" rows="${Math.max(2,(s.dutySku||[]).length+1)}" style="width:100%;font-family:var(--mono);font-size:12px;padding:8px;border:1px solid var(--line);border-radius:8px;resize:vertical" placeholder="00011, 3000, 1090700">${txt}</textarea></div></div>`;
+    return `<div class="pcard"><div class="phead"><span class="code">${s.label||('차수 '+(i+1))}</span><span class="u">한 줄에 "품번, EA, 관세액(₩)" — 例) 00011, 3000, 1090665</span></div>
+      <div style="padding:10px 14px"><textarea data-dsi="${i}" rows="${Math.max(2,(s.dutySku||[]).length+1)}" style="width:100%;font-family:var(--mono);font-size:12px;padding:8px;border:1px solid var(--line);border-radius:8px;resize:vertical" placeholder="00011, 3000, 1090665">${txt}</textarea></div></div>`;
   }).join('')+'<div class="stats" id="costDutyPool"></div>';
   el.querySelectorAll('textarea[data-dsi]').forEach(t=>t.addEventListener('input',e=>{const i=+e.target.dataset.dsi;r.shipments[i].dutySku=parseDutyLines(e.target.value);saveCost();costRecompute();}));
 }
@@ -1274,12 +1260,11 @@ function renderCostTable(){
       <td style="min-width:150px">${nm}</td>
       <td class="num mono" id="cv-cbm-${i}">—</td>
       <td class="num mono" id="cv-upb-${i}">—</td>
-      <td class="num mono" id="cv-fvar-${i}">—</td>
-      <td class="num mono" id="cv-fix-${i}">—</td>
+      <td class="num mono" id="cv-freight-${i}">—</td>
       <td class="num mono" id="cv-duty-${i}">—</td>
       <td class="num mono" id="cv-total-${i}">—</td>
       <td><button class="rm" data-rk="${i}" title="삭제">✕</button></td></tr>`;}).join('');
-  el.innerHTML=`<div class="cfg"><table class="lines" style="min-width:820px"><thead><tr><th>품번</th><th>품명</th><th>완박CBM</th><th>입수</th><th>운임변동/EA</th><th>운임고정/EA</th><th>관세/EA</th><th>총 표준착지원가/EA</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  el.innerHTML=`<div class="cfg"><table class="lines" style="min-width:720px"><thead><tr><th>품번</th><th>품명</th><th>완박CBM</th><th>입수</th><th>운임/EA</th><th>관세/EA</th><th>총 표준착지원가/EA</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
   el.querySelectorAll('input[data-ki][data-f="code"]').forEach(inp=>inp.addEventListener('change',e=>{state.cost.items[+e.target.dataset.ki].code=padCode(e.target.value.trim());saveCostItems();renderCostTable();}));
   el.querySelectorAll('[data-rk]').forEach(b=>b.onclick=()=>{state.cost.items.splice(+b.dataset.rk,1);saveCostItems();renderCostTable();});
   costRecompute();
@@ -1287,8 +1272,8 @@ function renderCostTable(){
 function costRecompute(){
   const r=costRoute();const std=costStd(r);const c=costCompute();
   const fmt=n=>n==null?'—':Math.round(n).toLocaleString();
-  (r.shipments||[]).forEach((s,i)=>{const el=document.getElementById('lv-rate-'+i);if(el){const cb=+s.cbm||0;el.textContent=cb?Math.round((+s.varSum||0)/cb).toLocaleString():'—';}});
-  $('costStd').innerHTML=std.n?`표본 <b>${std.n}</b>차 · 총 CBM <b>${std.cbm.toFixed(3)}</b> · 표준 변동단가 <b>${std.rateStd!=null?Math.round(std.rateStd).toLocaleString():'—'}</b> ₩/CBM · 표준 건당고정비 <b>${std.fixShip!=null?Math.round(std.fixShip).toLocaleString():'—'}</b> ₩ · 실적단가(일시포함) <b>${std.rateActual!=null?Math.round(std.rateActual).toLocaleString():'—'}</b>`:'<span style="color:var(--amber)">차수를 추가하면 표준단가가 계산됩니다.</span>';
+  (r.shipments||[]).forEach((s,i)=>{const el=document.getElementById('lv-rate-'+i);if(el){const cb=+s.cbm||0;el.textContent=cb?Math.round((+s.subtotal||0)/cb).toLocaleString():'—';}});
+  $('costStd').innerHTML=std.n?`표본 <b>${std.n}</b>차 · 총 CBM <b>${std.cbm.toFixed(3)}</b> · <b>표준 운임단가 ${std.rateStd!=null?Math.round(std.rateStd).toLocaleString():'—'} ₩/CBM</b> · 실적단가(일시포함) <b>${std.rateActual!=null?Math.round(std.rateActual).toLocaleString():'—'}</b>`:'<span style="color:var(--amber)">차수를 추가하면 표준 운임단가가 계산됩니다.</span>';
   const pool=$('costDutyPool');
   if(pool){const m=costDutyStd(r);const codes=Object.keys(m).sort();
     pool.innerHTML=codes.length?('관세 누적 표준 — '+codes.map(cd=>`${cd} <b>${Math.round(m[cd].perEa).toLocaleString()}</b>₩/EA`).join(' · ')):'';}
@@ -1296,13 +1281,13 @@ function costRecompute(){
   c.rows.forEach((row,i)=>{
     set('cv-cbm-'+i,row.bcbm?row.bcbm.toFixed(4):'<span class="miss">▲</span>');
     set('cv-upb-'+i,row.upb??'<span class="miss">—</span>');
-    set('cv-fvar-'+i,fmt(row.fVar));set('cv-fix-'+i,fmt(row.fixEa));
+    set('cv-freight-'+i,fmt(row.freight));
     set('cv-duty-'+i,row.isHKfree?'<span style="color:var(--mut)">0 (무관세)</span>':fmt(row.dutyEa));
     if(row.complete)set('cv-total-'+i,'<b style="color:var(--accent)">'+fmt(row.total)+'</b>');
-    else{const m=[];if(row.fVar==null)m.push('체적/운임');if(row.fixEa==null)m.push('고정비');if(row.dutyEa==null)m.push('관세');set('cv-total-'+i,'<span class="miss">▲ '+m.join('·')+'</span>');}
+    else{const m=[];if(row.freight==null)m.push('체적/운임');if(row.dutyEa==null)m.push('관세');set('cv-total-'+i,'<span class="miss">▲ '+m.join('·')+'</span>');}
   });
   if(!state.cost.items.length){$('costSum').innerHTML='';return;}
-  $('costSum').innerHTML=`노선 <b>${COST.route}</b> · 모드 <b>${COST.mode==='actual'?'실적':'표준'}</b> · 적용 변동단가 <b>${c.rate!=null?Math.round(c.rate).toLocaleString():'—'}</b> ₩/CBM · 고정비/EA <b>${c.fixEa!=null?Math.round(c.fixEa).toLocaleString():'—'}</b> ₩`+(c.isHK?' · <span style="color:var(--ok)">홍콩 무관세</span>':'');
+  $('costSum').innerHTML=`노선 <b>${COST.route}</b> · 모드 <b>${COST.mode==='actual'?'실적':'표준'}</b> · 적용 운임단가 <b>${c.rate!=null?Math.round(c.rate).toLocaleString():'—'}</b> ₩/CBM`+(c.isHK?' · <span style="color:var(--ok)">홍콩 무관세</span>':'');
 }
 function costPickRender(){
   const q=(state.cost.q||'').trim().toLowerCase();const el=$('costPick');
@@ -1314,18 +1299,15 @@ function costPickRender(){
 function addCostItem(code){if(state.cost.items.some(i=>i.code===code))return;state.cost.items.push({code});saveCostItems();renderCostTable();}
 function renderCost(){renderLedger();renderDuty();renderCostTable();}
 function costSyncUI(){
-  const r=costRoute();
   $('k-route').value=COST.route;
   const tag=$('navcost');if(tag)tag.textContent=COST.route;
   document.querySelectorAll('#k-modeSel button').forEach(b=>b.classList.toggle('on',b.dataset.m===COST.mode));
-  $('k-palletizing').value=r.palletizing??'';$('k-annShip').value=r.annShip??'';$('k-annEa').value=r.annEa??'';
   renderCost();
 }
 function costInit(){
   $('k-route').addEventListener('change',e=>{COST.route=e.target.value;saveCost();costSyncUI();});
   $('k-modeSel').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;COST.mode=b.dataset.m;document.querySelectorAll('#k-modeSel button').forEach(x=>x.classList.toggle('on',x===b));saveCost();costRecompute();});
-  [['k-palletizing','palletizing'],['k-annShip','annShip'],['k-annEa','annEa']].forEach(([id,key])=>{$(id).addEventListener('input',e=>{costRoute()[key]=e.target.value;saveCost();costRecompute();});});
-  $('k-addShip').onclick=()=>{costRoute().shipments.push({id:newShipId(),label:'',date:'',cbm:'',varSum:'',fixSum:'',onceSum:'',dutySku:[]});saveCost();renderCost();};
+  $('k-addShip').onclick=()=>{costRoute().shipments.push({id:newShipId(),label:'',date:'',cbm:'',subtotal:'',onceSum:'',dutySku:[]});saveCost();renderCost();};
   $('k-q').addEventListener('input',e=>{state.cost.q=e.target.value;costPickRender();});
   $('k-fillSku').onclick=()=>{const r=costRoute();const codes=[...new Set((r.shipments||[]).flatMap(s=>(s.dutySku||[]).map(d=>padCode(d.code))))];
     if(!codes.length){toast(COST.route==='HK'?'홍콩은 검색으로 SKU를 추가하세요':'관세 원장에 SKU가 없습니다');return;}
@@ -1334,9 +1316,9 @@ function costInit(){
 }
 function costExport(){
   const c=costCompute();const r=costRoute();const std=c.std;const rd=n=>n==null?'':Math.round(n);
-  const led=(r.shipments||[]).map(s=>({'차수':s.label,'날짜':s.date,'CBM':+s.cbm||'','변동합계':+s.varSum||'','고정합계':+s.fixSum||'','일시합계':+s.onceSum||'','변동단가':(+s.cbm)?Math.round((+s.varSum||0)/(+s.cbm)):''}));
-  const sku=c.rows.map(row=>({'품번':row.it.code,'품명':row.p.nameKo||row.p.nameEn||'','완박CBM':row.bcbm?+row.bcbm.toFixed(4):'','입수':row.upb??'','운임변동/EA':rd(row.fVar),'운임고정/EA':rd(row.fixEa),'관세/EA':row.isHKfree?0:rd(row.dutyEa),'총표준착지원가/EA':row.complete?rd(row.total):''}));
-  const meta=[{'항목':'노선',' 값':COST.route},{'항목':'모드',' 값':COST.mode},{'항목':'표본차수',' 값':std.n},{'항목':'표준변동단가(₩/CBM)',' 값':rd(std.rateStd)},{'항목':'표준건당고정비(₩)',' 값':rd(std.fixShip)}];
+  const led=(r.shipments||[]).map(s=>({'차수':s.label,'날짜':s.date,'CBM':+s.cbm||'','선적비(VAT·일시제외)':+s.subtotal||'','일시비':+s.onceSum||'','단가₩/CBM':(+s.cbm)?Math.round((+s.subtotal||0)/(+s.cbm)):''}));
+  const sku=c.rows.map(row=>({'품번':row.it.code,'품명':row.p.nameKo||row.p.nameEn||'','완박CBM':row.bcbm?+row.bcbm.toFixed(4):'','입수':row.upb??'','운임/EA':rd(row.freight),'관세/EA':row.isHKfree?0:rd(row.dutyEa),'총표준착지원가/EA':row.complete?rd(row.total):''}));
+  const meta=[{'항목':'노선',' 값':COST.route},{'항목':'모드',' 값':COST.mode},{'항목':'표본차수',' 값':std.n},{'항목':'표준운임단가(₩/CBM)',' 값':rd(std.rateStd)},{'항목':'실적단가(일시포함)',' 값':rd(std.rateActual)}];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(sku),'표준착지원가');
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(led),'운임원장');
