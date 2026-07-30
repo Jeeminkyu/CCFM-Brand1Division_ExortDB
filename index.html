@@ -146,11 +146,13 @@ td.num{text-align:right}
   body *{visibility:hidden!important}
   body.pb #boxLabels,body.pb #boxLabels *{visibility:visible!important}
   body.pp #palletMarks,body.pp #palletMarks *{visibility:visible!important}
-  body.pb #boxLabels,body.pp #palletMarks{position:absolute;left:0;top:0;width:100%}
+  body.pb #boxLabels,body.pp #palletMarks{position:absolute;left:0;top:0;width:100%;box-sizing:border-box}
+  body.pb #boxLabels{padding:6mm}
+  body.pp #palletMarks{padding:8mm}
   .label{page-break-inside:avoid;margin:0 6mm 6mm 0;width:88mm;display:inline-block;vertical-align:top}
   .pmark{page-break-after:always;width:100%;max-width:none;margin:0}
   body.pc #ciplPreview,body.pc #ciplPreview *{visibility:visible!important}
-  body.pc #ciplPreview{position:absolute;left:0;top:0;width:100%}
+  body.pc #ciplPreview{position:absolute;left:0;top:0;width:100%;box-sizing:border-box;padding:10mm}
   body.pc .doc{border:0;box-shadow:none;max-width:none;padding:0}
 }
 .segtabs{display:inline-flex;gap:2px;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:16px 0 14px}
@@ -1193,7 +1195,7 @@ function ciplExport(){
   if(!state.cipl.items.length){toast('품목이 없습니다');return;}
   const h=state.cipl.hdr;
   XLSX.writeFile(ciplWorkbook(),'CIPL_'+(h.invNo||new Date().toISOString().slice(0,10))+'.xlsx');toast('CIPL xlsx 내보내기 완료');}
-function printCipl(){let st=document.getElementById('printoff');if(!st){st=document.createElement('style');st.id='printoff';document.head.appendChild(st);}st.textContent='@media print{@page{size:A4 portrait;margin:10mm}}';document.body.classList.add('pc');window.print();}
+function printCipl(){let st=document.getElementById('printoff');if(!st){st=document.createElement('style');st.id='printoff';document.head.appendChild(st);}st.textContent='@media print{@page{size:A4 portrait;margin:0}}';document.body.classList.add('pc');window.print();}
 function renderCipl(){renderCiplItems();renderCiplTotals();renderCiplPreview();batchTouch();}
 
 /* ---- 선적원가 (landed cost) : 단일 ₩/CBM 운임 + 대만 관세 ---- */
@@ -1467,7 +1469,7 @@ $('boxq').addEventListener('keydown',e=>{if(e.key==='Enter'){const first=$('boxP
 $('boxPrint').onclick=()=>{if(!state.boxItems.length){toast('추가된 상품이 없습니다');return;}
   const off=parseFloat($('boxOffset').value)||0;
   let st=document.getElementById('printoff');if(!st){st=document.createElement('style');st.id='printoff';document.head.appendChild(st);}
-  st.textContent='@media print{@page{size:auto;margin:6mm}#boxLabels{transform:translateY(-'+off+'mm)}}';
+  st.textContent='@media print{@page{size:auto;margin:0}#boxLabels{transform:translateY(-'+off+'mm)}}';
   document.body.classList.add('pb');window.print();};
 $('boxXlsx').onclick=boxExport;
 $('boxClear').onclick=()=>{if(state.boxItems.length&&confirm('추가한 상품을 모두 비울까요?')){state.boxItems=[];renderBox();}};
@@ -1478,7 +1480,7 @@ $('palletAdd').onclick=addPallet;
 $('palletClear').onclick=()=>{if(state.pallets.length&&confirm('팔레트를 모두 비울까요?')){state.pallets=[];renderPallet();}};
 $('palletPrint').onclick=()=>{if(!state.pallets.length){toast('추가된 팔레트가 없습니다');return;}
   let st=document.getElementById('printoff');if(!st){st=document.createElement('style');st.id='printoff';document.head.appendChild(st);}
-  st.textContent='@media print{@page{size:A4 landscape;margin:8mm}}';
+  st.textContent='@media print{@page{size:A4 landscape;margin:0}}';
   document.body.classList.add('pp');window.print();};
 window.addEventListener('afterprint',()=>{document.body.classList.remove('pb','pp','pc');});
 // CIPL
