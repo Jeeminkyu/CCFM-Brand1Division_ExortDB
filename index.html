@@ -492,6 +492,7 @@ const TW_FIX={};
 // 상품정보고시/CIPL 기준 중문 주명 + 영문명 교정 (빈값 또는 이전 추정값일 때만 덮어씀)
 const NAME_FIX={};
 let DB=[], COUNTRIES=[], state={q:'',qhs:'',brand:'all',sort:'code',dir:1,editIdx:-1,optCols:{nameEn:false,nameZh:false,maker:false,cbm:false},boxq:'',boxItems:[],pallet:{consignor:'',consignee:'',po:'',item:''},pallets:[{weight:''}],ciplq:'',cipl:{hdr:{invNo:'',invDate:'',destCountry:'TW',consignee:'',notify:'Same as Consignee',incoterms:'DDP',pol:'BUSAN PORT',dest:'TAIWAN',carrier:'',sailing:'',lc:'',lcbank:'',currency:'USD',shipper:''},doc:'ci',items:[]},cost:{q:'',items:[]}};
+const DEFAULT_PALLET=JSON.parse(JSON.stringify(state.pallet)),DEFAULT_CIPL=JSON.parse(JSON.stringify(state.cipl));
 // ---- 선적원가(landed cost) 파라미터: 노선별 저장 (인계문서 §2.2 기준) ----
 // 노선별 "차수 원장" 누적 → 단일 ₩/CBM 표준운임 수렴. shipments[]: {id,label,date,cbm,subtotal,onceSum,dutySku:[{code,ea,duty}]}
 const DEF_COST={route:'TW',mode:'standard',routes:{TW:{shipments:[],items:[]},HK:{shipments:[],items:[]}}};
@@ -567,10 +568,11 @@ function batchSnapshot(){return JSON.parse(JSON.stringify({boxItems:state.boxIte
 function fillCiplHeaderInputs(){const h=state.cipl.hdr;const map={'c-invno':'invNo','c-invdate':'invDate','c-consignee':'consignee','c-notify':'notify','c-incoterms':'incoterms','c-pol':'pol','c-destname':'dest','c-carrier':'carrier','c-sailing':'sailing','c-lc':'lc','c-lcbank':'lcbank','c-cur':'currency','c-shipper':'shipper'};Object.entries(map).forEach(([id,k])=>{const el=$(id);if(el)el.value=h[k]||'';});const d=$('c-dest');if(d)d.value=h.destCountry;const cs=$('c-consignee-sel');if(cs)cs.value=h.destCountry;}
 function fillPalletHeaderInputs(){const p=state.pallet;const m={'f-consignor':'consignor','f-consignee':'consignee','f-po':'po','f-item':'item'};Object.entries(m).forEach(([id,k])=>{const el=$(id);if(el)el.value=p[k]||'';});}
 function batchApply(data){batchApplying=true;try{
-  state.boxItems=Array.isArray(data.boxItems)?data.boxItems:[];
-  if(data.pallet)state.pallet=data.pallet;
-  state.pallets=(Array.isArray(data.pallets)&&data.pallets.length)?data.pallets:[{weight:''}];
-  if(data.cipl)state.cipl=data.cipl;
+  data=data||{};
+  state.boxItems=Array.isArray(data.boxItems)?JSON.parse(JSON.stringify(data.boxItems)):[];
+  state.pallet=data.pallet?JSON.parse(JSON.stringify(data.pallet)):JSON.parse(JSON.stringify(DEFAULT_PALLET));
+  state.pallets=(Array.isArray(data.pallets)&&data.pallets.length)?JSON.parse(JSON.stringify(data.pallets)):[{weight:''}];
+  state.cipl=data.cipl?JSON.parse(JSON.stringify(data.cipl)):JSON.parse(JSON.stringify(DEFAULT_CIPL));
   fillPalletHeaderInputs();fillCiplHeaderInputs();
   renderBox();renderPallet();renderCipl();
 }finally{batchApplying=false;}}
@@ -612,11 +614,15 @@ async function batchDelete(id,name){if(!confirm('"'+name+'" 차수를 삭제할�
 const SHIP_BUCKET='shipments';
 const FILE_LABELS={'box-label.pdf':'박스라벨 (PDF)','pallet-mark.pdf':'팔레트 마크 (PDF)','cipl.xlsx':'CIPL (Excel)'};
 async function pdfBlobFromEl(srcEl,orientation,widthPx){
-  const holder=document.createElement('div');
-  holder.style.cssText='position:fixed;left:-100000px;top:0;background:#ffffff;padding:8px;width:'+widthPx+'px;z-index:-1';
-  holder.appendChild(srcEl.cloneNode(true));document.body.appendChild(holder);
-  try{return await html2pdf().set({margin:6,image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,backgroundColor:'#ffffff',useCORS:true},jsPDF:{unit:'mm',format:'a4',orientation:orientation},pagebreak:{mode:['css','avoid-all']}}).from(holder).outputPdf('blob');}
-  finally{document.body.removeChild(holder);}
+  // 화면에 보이는 실제 요소를 직접 캡처(화면 밖 복제본은 html2canvas가 백지로 캡처함).
+  // 해당 탭이 숨겨져 있으면 캡처 동안만 잠깐 표시.
+  const panel=srcEl.closest('.panel');
+  const wasHidden=panel&&!panel.classList.contains('on');
+  if(wasHidden)panel.classList.add('on');
+  try{
+    await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});});
+    return await html2pdf().set({margin:6,image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,backgroundColor:'#ffffff',useCORS:true},jsPDF:{unit:'mm',format:'a4',orientation:orientation},pagebreak:{mode:['css','avoid-all']}}).from(srcEl).outputPdf('blob');
+  }finally{if(wasHidden)panel.classList.remove('on');}
 }
 async function genBatchFiles(){
   if(!activeBatch){toast('먼저 차수를 저장/열어주세요');return;}
