@@ -637,12 +637,12 @@ async function batchFiles(){const el=$('batchFilesList');if(!el)return;
   if(error){el.innerHTML='<div style="font-size:12px;color:#b3261e">파일 목록 오류: '+error.message+'</div>';return;}
   const files=(data||[]).filter(f=>f.name&&f.id!==null);
   if(!files.length){el.innerHTML='<div style="font-size:12px;color:var(--mut)">아직 저장된 파일이 없어요. 위 버튼으로 저장하세요.</div>';return;}
-  el.innerHTML=files.map(f=>'<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:8px 10px"><div style="min-width:0"><div style="font-weight:500;font-size:13px">'+(FILE_LABELS[f.name]||f.name)+'</div><div style="font-size:11px;color:var(--mut)">'+f.name+'</div></div><div style="display:flex;gap:6px;flex-shrink:0"><button class="btn" data-fopen="'+f.name+'">열기</button><button class="btn gho dgr" data-fdel="'+f.name+'">삭제</button></div></div>').join('');
+  el.innerHTML=files.map(f=>'<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:8px 10px"><div style="min-width:0"><div style="font-weight:500;font-size:13px">'+(FILE_LABELS[f.name]||dispName(f.name))+'</div><div style="font-size:11px;color:var(--mut)">'+dispName(f.name)+'</div></div><div style="display:flex;gap:6px;flex-shrink:0"><button class="btn" data-fopen="'+f.name+'">열기</button><button class="btn gho dgr" data-fdel="'+f.name+'">삭제</button></div></div>').join('');
   el.querySelectorAll('[data-fopen]').forEach(b=>b.onclick=()=>batchFileOpen(b.dataset.fopen));
   el.querySelectorAll('[data-fdel]').forEach(b=>b.onclick=()=>batchFileDelete(b.dataset.fdel));
 }
 async function batchFileOpen(name){const {data,error}=await sbClient.storage.from(SHIP_BUCKET).createSignedUrl(activeBatch.id+'/'+name,120);if(error){toast('열기 실패');return;}window.open(data.signedUrl,'_blank');}
-async function batchFileDelete(name){if(!confirm((FILE_LABELS[name]||name)+' 파일을 삭제할까요?'))return;const {error}=await sbClient.storage.from(SHIP_BUCKET).remove([activeBatch.id+'/'+name]);if(error){toast('삭제 실패');return;}toast('삭제됨');batchFiles();}
+async function batchFileDelete(name){if(!confirm((FILE_LABELS[name]||dispName(name))+' 파일을 삭제할까요?'))return;const {error}=await sbClient.storage.from(SHIP_BUCKET).remove([activeBatch.id+'/'+name]);if(error){toast('삭제 실패');return;}toast('삭제됨');batchFiles();}
 // ===== 각 탭 → 차수에 개별 저장 =====
 let sbfKind='box';
 function setSbfStatus(t){const el=$('sbfStatus');if(el)el.textContent=t;}
@@ -652,9 +652,14 @@ async function makeTabBlob(kind){
   if(kind==='cipl'){if(!state.cipl.items.length)return null;const arr=XLSX.write(ciplWorkbook(),{bookType:'xlsx',type:'array'});return new Blob([arr],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});}
   return null;
 }
+function _b64url(s){return btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');}
+function _b64urlDec(s){s=s.replace(/-/g,'+').replace(/_/g,'/');try{return decodeURIComponent(escape(atob(s)));}catch(e){return s;}}
+function keyName(display){const dot=display.lastIndexOf('.');const base=dot>0?display.slice(0,dot):display;const ext=dot>0?display.slice(dot):'';
+  if(/^[A-Za-z0-9 _().+-]+$/.test(base))return display;return 'enc-'+_b64url(base)+ext;}
+function dispName(key){if(key.indexOf('enc-')===0){const dot=key.lastIndexOf('.');const enc=dot>0?key.slice(4,dot):key.slice(4);const ext=dot>0?key.slice(dot):'';return _b64urlDec(enc)+ext;}return key;}
 async function uniqueName(batchId,name){
   const {data}=await sbClient.storage.from(SHIP_BUCKET).list(batchId,{limit:200});
-  const ex=new Set((data||[]).map(f=>f.name));
+  const ex=new Set((data||[]).map(f=>dispName(f.name)));
   if(!ex.has(name))return name;
   const dot=name.lastIndexOf('.');const base=dot>0?name.slice(0,dot):name;const ext=dot>0?name.slice(dot):'';
   let n=2;while(ex.has(base+' ('+n+')'+ext))n++;return base+' ('+n+')'+ext;
@@ -686,9 +691,9 @@ async function sbfSave(){
   setSbfStatus('파일 생성 중… (잠시)');
   let blob;try{blob=await makeTabBlob(kind);}catch(e){setSbfStatus('생성 실패: '+(e.message||e));return;}
   if(!blob){setSbfStatus('이 탭에 저장할 내용이 없어요');toast('저장할 내용이 없어요');return;}
-  const finalName=await uniqueName(batchId,fn);
+  const finalName=await uniqueName(batchId,fn);const storeKey=keyName(finalName);
   const ct=(kind==='cipl'?'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':'application/pdf');
-  const {error}=await sbClient.storage.from(SHIP_BUCKET).upload(batchId+'/'+finalName,blob,{upsert:false,contentType:ct});
+  const {error}=await sbClient.storage.from(SHIP_BUCKET).upload(batchId+'/'+storeKey,blob,{upsert:false,contentType:ct});
   if(error){setSbfStatus('저장 실패: '+error.message);return;}
   setSbfStatus('저장됨: '+batchName+' / '+finalName);toast('저장 완료: '+finalName);
   if(activeBatch&&activeBatch.id===batchId)batchFiles();
