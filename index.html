@@ -632,7 +632,7 @@ async function genBatchFiles(){
   const up=async(name,blob,ct)=>{const {error}=await sbClient.storage.from(SHIP_BUCKET).upload(activeBatch.id+'/'+name,blob,{upsert:true,contentType:ct});if(error)throw error;};
   try{
     if(state.boxItems.length){const b=await pdfBlobFromEl($('boxLabels'),'portrait',794);await up('box-label.pdf',b,'application/pdf');}
-    if(state.pallets.length){const b=await pdfBlobFromEl($('palletMarks'),'landscape',1123);await up('pallet-mark.pdf',b,'application/pdf');}
+    if(state.pallets.length){const b=await palletPdfBlob();await up('pallet-mark.pdf',b,'application/pdf');}
     if(state.cipl.items.length){const arr=XLSX.write(ciplWorkbook(),{bookType:'xlsx',type:'array'});await up('cipl.xlsx',new Blob([arr],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');}
     setBatchStatus('파일 저장 완료 '+new Date().toLocaleTimeString());toast('차수 파일 저장 완료');batchFiles();
   }catch(e){setBatchStatus('파일 저장 실패: '+(e.message||e));toast('파일 저장 실패');}
@@ -652,9 +652,27 @@ async function batchFileDelete(name){if(!confirm((FILE_LABELS[name]||dispName(na
 // ===== 각 탭 → 차수에 개별 저장 =====
 let sbfKind='box';
 function setSbfStatus(t){const el=$('sbfStatus');if(el)el.textContent=t;}
+async function palletPdfBlob(){
+  if(!state.pallets.length)return null;
+  const total=state.pallets.length;
+  const cap=document.createElement('div');
+  cap.style.cssText='position:fixed;left:0;top:0;width:1123px;z-index:2147483646;background:#ffffff';
+  state.pallets.forEach(function(p,i){
+    const page=document.createElement('div');
+    page.style.cssText='width:1123px;height:794px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:30px;background:#ffffff;'+(i<total-1?'page-break-after:always;':'');
+    page.innerHTML=markCard(state.pallet,i+1,total,p.weight);
+    const pm=page.querySelector('.pmark');if(pm){pm.style.width='100%';pm.style.maxWidth='1050px';pm.style.margin='0';}
+    cap.appendChild(page);
+  });
+  document.body.appendChild(cap);
+  try{
+    await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});});
+    return await html2pdf().set({margin:0,image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,backgroundColor:'#ffffff'},jsPDF:{unit:'mm',format:'a4',orientation:'landscape'},pagebreak:{mode:['css']}}).from(cap).outputPdf('blob');
+  }finally{document.body.removeChild(cap);}
+}
 async function makeTabBlob(kind){
   if(kind==='box'){if(!state.boxItems.length)return null;return await pdfBlobFromEl($('boxLabels'),'portrait',794);}
-  if(kind==='pallet'){if(!state.pallets.length)return null;return await pdfBlobFromEl($('palletMarks'),'landscape',1123);}
+  if(kind==='pallet'){if(!state.pallets.length)return null;return await palletPdfBlob();}
   if(kind==='cipl'){if(!state.cipl.items.length)return null;const arr=XLSX.write(ciplWorkbook(),{bookType:'xlsx',type:'array'});return new Blob([arr],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});}
   return null;
 }
