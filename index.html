@@ -491,7 +491,7 @@ const DEF_COUNTRIES=[{code:'TW',label:'대만(TW)'},{code:'HK',label:'홍콩(HK)
 const TW_FIX={};
 // 상품정보고시/CIPL 기준 중문 주명 + 영문명 교정 (빈값 또는 이전 추정값일 때만 덮어씀)
 const NAME_FIX={};
-const APP_VER='2026-07-31-c';
+const APP_VER='2026-07-31-d';
 (function(){try{var u=new URL(location.href);
   fetch(location.pathname+'?_ck='+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
     var m=t.match(/APP_VER='([^']+)'/);
@@ -670,7 +670,7 @@ async function palletPdfBlob(){
     if(!marks.length)return null;
     // 각 팔레트 마크를 개별 캔버스로 캡처
     const canvases=[];
-    for(let i=0;i<marks.length;i++){canvases.push(await html2pdf().set({html2canvas:{scale:2,backgroundColor:'#ffffff'}}).from(marks[i]).toCanvas().get('canvas'));}
+    for(let i=0;i<marks.length;i++){var mw=marks[i].offsetWidth+14;canvases.push(await html2pdf().set({html2canvas:{scale:2,backgroundColor:'#ffffff',width:mw,windowWidth:mw+60}}).from(marks[i]).toCanvas().get('canvas'));}
     // 빈 jsPDF 인스턴스 확보(생성자 직접 노출 안 됨) 후 페이지당 마크 1개 배치
     const blank=document.createElement('div');blank.style.cssText='width:8px;height:8px;background:#ffffff';document.body.appendChild(blank);
     const pdf=await html2pdf().set({jsPDF:{unit:'mm',format:'a4',orientation:'landscape'},html2canvas:{scale:1,backgroundColor:'#ffffff'}}).from(blank).toPdf().get('pdf');
