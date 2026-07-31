@@ -491,6 +491,12 @@ const DEF_COUNTRIES=[{code:'TW',label:'대만(TW)'},{code:'HK',label:'홍콩(HK)
 const TW_FIX={};
 // 상품정보고시/CIPL 기준 중문 주명 + 영문명 교정 (빈값 또는 이전 추정값일 때만 덮어씀)
 const NAME_FIX={};
+const APP_VER='2026-07-31-a';
+(function(){try{var u=new URL(location.href);
+  fetch(location.pathname+'?_ck='+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
+    var m=t.match(/APP_VER='([^']+)'/);
+    if(m&&m[1]!==APP_VER&&u.searchParams.get('appv')!==m[1]){u.searchParams.set('appv',m[1]);location.replace(u.toString());}
+  }).catch(function(){});}catch(e){}})();
 let DB=[], COUNTRIES=[], state={q:'',qhs:'',brand:'all',sort:'code',dir:1,editIdx:-1,optCols:{nameEn:false,nameZh:false,maker:false,cbm:false},boxq:'',boxItems:[],pallet:{consignor:'',consignee:'',po:'',item:''},pallets:[{weight:''}],ciplq:'',cipl:{hdr:{invNo:'',invDate:'',destCountry:'TW',consignee:'',notify:'Same as Consignee',incoterms:'DDP',pol:'BUSAN PORT',dest:'TAIWAN',carrier:'',sailing:'',lc:'',lcbank:'',currency:'USD',shipper:''},doc:'ci',items:[]},cost:{q:'',items:[]}};
 const DEFAULT_PALLET=JSON.parse(JSON.stringify(state.pallet)),DEFAULT_CIPL=JSON.parse(JSON.stringify(state.cipl));
 // ---- 선적원가(landed cost) 파라미터: 노선별 저장 (인계문서 §2.2 기준) ----
@@ -1582,6 +1588,7 @@ $('batchSaveCur')&&($('batchSaveCur').onclick=batchSaveCur);
 $('batchCreate').onclick=batchCreate;
 ['p-box','p-pallet','p-cipl'].forEach(id=>{const el=$(id);if(el)el.addEventListener('input',batchTouch);});
 restoreLocalWork();updateBatchBtn();
+try{var _sub=document.querySelector('.brand .sub');if(_sub)_sub.textContent=_sub.textContent+' · v'+APP_VER;}catch(e){}
 </script>
 </body>
 </html>
