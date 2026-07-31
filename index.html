@@ -136,6 +136,8 @@ td.num{text-align:right}
 .pmark .plt .k{font-size:13px;letter-spacing:.2em;color:#333}
 .pmark .plt .no{font-size:58px;font-weight:800;letter-spacing:.04em;line-height:1.1}
 .pmark .plt .no .sub{color:#9aa}
+#palletMarks.pdfcap{width:1123px}
+#palletMarks.pdfcap .pmark{width:1050px;max-width:none;height:794px;margin:0 auto;display:flex;flex-direction:column;justify-content:center;page-break-after:always;box-sizing:border-box}
 .pmark .gw{display:flex;align-items:flex-end;gap:14px;border-top:2px solid #111;padding-top:16px}
 .pmark .gw .k{font-size:14px;letter-spacing:.1em;font-weight:600;padding-bottom:4px;white-space:nowrap}
 .pmark .gw .v{flex:1;min-width:0;font-size:28px;font-weight:800;text-align:right;border-bottom:2px solid #111;padding:0 10px 2px}
@@ -491,7 +493,7 @@ const DEF_COUNTRIES=[{code:'TW',label:'대만(TW)'},{code:'HK',label:'홍콩(HK)
 const TW_FIX={};
 // 상품정보고시/CIPL 기준 중문 주명 + 영문명 교정 (빈값 또는 이전 추정값일 때만 덮어씀)
 const NAME_FIX={};
-const APP_VER='2026-07-31-a';
+const APP_VER='2026-07-31-b';
 (function(){try{var u=new URL(location.href);
   fetch(location.pathname+'?_ck='+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
     var m=t.match(/APP_VER='([^']+)'/);
@@ -660,21 +662,15 @@ let sbfKind='box';
 function setSbfStatus(t){const el=$('sbfStatus');if(el)el.textContent=t;}
 async function palletPdfBlob(){
   if(!state.pallets.length)return null;
-  const total=state.pallets.length;
-  const cap=document.createElement('div');
-  cap.style.cssText='position:fixed;left:0;top:0;width:1123px;z-index:2147483646;background:#ffffff';
-  state.pallets.forEach(function(p,i){
-    const page=document.createElement('div');
-    page.style.cssText='width:1123px;height:794px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:30px;background:#ffffff;'+(i<total-1?'page-break-after:always;':'');
-    page.innerHTML=markCard(state.pallet,i+1,total,p.weight);
-    const pm=page.querySelector('.pmark');if(pm){pm.style.width='100%';pm.style.maxWidth='1050px';pm.style.margin='0';}
-    cap.appendChild(page);
-  });
-  document.body.appendChild(cap);
+  const el=$('palletMarks');
+  const panel=el.closest('.panel');
+  const wasHidden=panel&&!panel.classList.contains('on');
+  if(wasHidden)panel.classList.add('on');
+  renderPalletMarks();
+  el.classList.add('pdfcap');
   try{
-    await new Promise(function(r){requestAnimationFrame(function(){requestAnimationFrame(r);});});
-    return await html2pdf().set({margin:0,image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,backgroundColor:'#ffffff'},jsPDF:{unit:'mm',format:'a4',orientation:'landscape'},pagebreak:{mode:['css']}}).from(cap).outputPdf('blob');
-  }finally{document.body.removeChild(cap);}
+    return await html2pdf().set({margin:0,image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,backgroundColor:'#ffffff'},jsPDF:{unit:'mm',format:'a4',orientation:'landscape'},pagebreak:{mode:['css']}}).from(el).outputPdf('blob');
+  }finally{el.classList.remove('pdfcap');if(wasHidden)panel.classList.remove('on');}
 }
 async function makeTabBlob(kind){
   if(kind==='box'){if(!state.boxItems.length)return null;return await pdfBlobFromEl($('boxLabels'),'portrait',794);}
