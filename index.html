@@ -136,8 +136,6 @@ td.num{text-align:right}
 .pmark .plt .k{font-size:13px;letter-spacing:.2em;color:#333}
 .pmark .plt .no{font-size:58px;font-weight:800;letter-spacing:.04em;line-height:1.1}
 .pmark .plt .no .sub{color:#9aa}
-#palletMarks.pdfcap{width:1123px}
-#palletMarks.pdfcap .pmark{width:1050px;max-width:none;height:794px;margin:0 auto;display:flex;flex-direction:column;justify-content:center;page-break-after:always;box-sizing:border-box}
 .pmark .gw{display:flex;align-items:flex-end;gap:14px;border-top:2px solid #111;padding-top:16px}
 .pmark .gw .k{font-size:14px;letter-spacing:.1em;font-weight:600;padding-bottom:4px;white-space:nowrap}
 .pmark .gw .v{flex:1;min-width:0;font-size:28px;font-weight:800;text-align:right;border-bottom:2px solid #111;padding:0 10px 2px}
@@ -493,7 +491,7 @@ const DEF_COUNTRIES=[{code:'TW',label:'대만(TW)'},{code:'HK',label:'홍콩(HK)
 const TW_FIX={};
 // 상품정보고시/CIPL 기준 중문 주명 + 영문명 교정 (빈값 또는 이전 추정값일 때만 덮어씀)
 const NAME_FIX={};
-const APP_VER='2026-07-31-b';
+const APP_VER='2026-07-31-c';
 (function(){try{var u=new URL(location.href);
   fetch(location.pathname+'?_ck='+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
     var m=t.match(/APP_VER='([^']+)'/);
@@ -667,10 +665,22 @@ async function palletPdfBlob(){
   const wasHidden=panel&&!panel.classList.contains('on');
   if(wasHidden)panel.classList.add('on');
   renderPalletMarks();
-  el.classList.add('pdfcap');
+  const marks=Array.prototype.slice.call(el.querySelectorAll('.pmark'));
   try{
-    return await html2pdf().set({margin:0,image:{type:'jpeg',quality:0.95},html2canvas:{scale:2,backgroundColor:'#ffffff'},jsPDF:{unit:'mm',format:'a4',orientation:'landscape'},pagebreak:{mode:['css']}}).from(el).outputPdf('blob');
-  }finally{el.classList.remove('pdfcap');if(wasHidden)panel.classList.remove('on');}
+    if(!marks.length)return null;
+    // 각 팔레트 마크를 개별 캔버스로 캡처
+    const canvases=[];
+    for(let i=0;i<marks.length;i++){canvases.push(await html2pdf().set({html2canvas:{scale:2,backgroundColor:'#ffffff'}}).from(marks[i]).toCanvas().get('canvas'));}
+    // 빈 jsPDF 인스턴스 확보(생성자 직접 노출 안 됨) 후 페이지당 마크 1개 배치
+    const blank=document.createElement('div');blank.style.cssText='width:8px;height:8px;background:#ffffff';document.body.appendChild(blank);
+    const pdf=await html2pdf().set({jsPDF:{unit:'mm',format:'a4',orientation:'landscape'},html2canvas:{scale:1,backgroundColor:'#ffffff'}}).from(blank).toPdf().get('pdf');
+    document.body.removeChild(blank);
+    const pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight(),M=8;
+    for(let i=0;i<canvases.length;i++){var c=canvases[i];var img=c.toDataURL('image/jpeg',0.95);
+      var aw=pw-2*M,ah=ph-2*M,ar=c.width/c.height;var w=aw,h=w/ar;if(h>ah){h=ah;w=h*ar;}
+      var x=(pw-w)/2,y=(ph-h)/2;if(i>0)pdf.addPage();pdf.addImage(img,'JPEG',x,y,w,h);}
+    return pdf.output('blob');
+  }finally{if(wasHidden)panel.classList.remove('on');}
 }
 async function makeTabBlob(kind){
   if(kind==='box'){if(!state.boxItems.length)return null;return await pdfBlobFromEl($('boxLabels'),'portrait',794);}
