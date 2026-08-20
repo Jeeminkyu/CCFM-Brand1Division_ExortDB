@@ -1407,11 +1407,12 @@ async function parseFreightPdf(data){
   const txt=r=>r.items.map(i=>i.s).join(' ');
   const isNum=s=>/^-?\d[\d,]*(\.\d+)?$/.test(String(s).trim());
   const toNum=s=>+String(s).replace(/,/g,'');
-  const chargeCol=r=>r.items.filter(i=>i.x>=470&&isNum(i.s)); // CHARGES IN KRW 컬럼(우측)
+  // CHARGES IN KRW 컬럼(우측, x>=470)의 숫자를 합쳐 읽음 — 큰 금액이 "2 , 163 , 007"처럼 토큰이 쪼개져 찍히는 인보이스 대응
+  const rowNum=r=>{const s=r.items.filter(i=>i.x>=470).map(t=>t.s).join('').replace(/[^\d]/g,'');return s?+s:null;};
   let subtotal=null;
-  for(const r of rowsAll){if(/SUBTOTAL/i.test(txt(r))){const c=chargeCol(r);if(c.length)subtotal=toNum(c[c.length-1].s);}}
+  for(const r of rowsAll){if(/SUBTOTAL/i.test(txt(r))){const v=rowNum(r);if(v!=null)subtotal=v;}}
   let once=0;const onceItems=[];
-  for(const r of rowsAll){const t=txt(r);if(/STORAGE|DEMURRAGE|DETENTION/i.test(t)){const c=chargeCol(r);if(c.length){const v=toNum(c[c.length-1].s);once+=v;onceItems.push(t.replace(/\s+/g,' ').slice(0,40));}}}
+  for(const r of rowsAll){const t=txt(r);if(/STORAGE|DEMURRAGE|DETENTION/i.test(t)){const v=rowNum(r);if(v){once+=v;onceItems.push(t.replace(/\s+/g,' ').slice(0,40));}}}
   let cbm=null,volume=null,xChg=null;
   for(const r of rowsAll)for(const it of r.items)if(/CHARGEABLE/i.test(it.s))xChg=it.x;
   for(const r of rowsAll){const m3s=r.items.filter(i=>/^\d+(\.\d+)?$/.test(i.s.trim())&&r.items.some(j=>j.x>i.x&&j.x-i.x<40&&/M3/i.test(j.s)));
@@ -1429,12 +1430,14 @@ async function parseFreightPdf(data){
   let goods='';
   if(yGoods!=null)for(const r of rowsAll){if(r.page===gp&&r.y<yGoods&&(yBroker==null||r.y>yBroker))goods+=' '+txt(r);}
   goods=goods.replace(/\s+/g,' ').trim();
-  return {cbm,subtotal,once,freight:subtotal!=null?subtotal-once:null,onceItems,routeGuess,invoiceNo:invM?invM[1]:null,date:dateM?dateM[1]:null,currencyOk,goods};
+  const isDisbursement=/DISBURSEMENT/i.test(full);
+  return {cbm,subtotal,once,freight:subtotal!=null?subtotal-once:null,onceItems,routeGuess,invoiceNo:invM?invM[1]:null,date:dateM?dateM[1]:null,currencyOk,goods,isDisbursement};
 }
 async function handleFreightFile(file){
   try{
     const buf=await file.arrayBuffer();
     const r=await parseFreightPdf(new Uint8Array(buf));
+    if(r.isDisbursement){toast('관세대납(Tax Disbursement) 인보이스네요 — 운임이 아니라 세금 총액이라 운임 원장엔 안 들어갑니다. SKU별 관세는 進口報單을 관세 원장에 올려주세요.');return;}
     if(r.subtotal==null){toast('금액(SUBTOTAL)을 못 찾았어요: '+file.name);return;}
     if(!r.currencyOk){toast('원화(KRW) 인보이스가 아닌 듯 — Noatum 코리아 인보이스를 올려주세요: '+(r.invoiceNo||file.name));return;}
     if(r.routeGuess&&COST.routes[r.routeGuess]&&COST.route!==r.routeGuess)COST.route=r.routeGuess;
