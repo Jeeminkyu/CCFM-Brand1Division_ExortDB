@@ -1301,20 +1301,34 @@ function renderDuty(){
   const wrap=$('costDutyWrap');const r=costRoute();
   if(COST.route==='HK'){wrap.style.display='none';return;}
   wrap.style.display='';const el=$('costDuty');const sh=r.shipments||[];
-  if(!sh.length){el.innerHTML='<div class="emptybox">먼저 운임 차수를 추가하면, 차수별로 進口報單 PDF를 업로드해 관세를 자동입력할 수 있습니다.</div>';return;}
+  if(!sh.length){el.innerHTML='<div class="emptybox">먼저 운임 차수를 추가하면, 차수별로 進口報單·대납 인보이스를 올려 관세를 자동입력할 수 있습니다.</div>';return;}
   el.innerHTML=sh.map((s,i)=>{
-    const txt=(s.dutySku||[]).map(d=>`${d.code}, ${d.ea}, ${d.duty}`).join('\n');
-    return `<div class="pcard" data-dcard="${i}"><div class="phead" style="gap:8px"><span class="code">${s.label||('차수 '+(i+1))}</span>
-      <span class="u" style="flex:1">進口報單 PDF 올리거나 여기로 끌어다 놓으면 SKU별 관세 자동입력 (營業稅 제외)</span>
-      <label style="font-size:11px;color:var(--mut)">TWD→₩ <input class="mono" data-fxsi="${i}" style="width:60px;padding:4px 6px;border:1px solid var(--line);border-radius:6px" value="${s.dutyFx??''}" placeholder="47.1"></label>
-      <button class="btnxs" data-dupl="${i}">📄 報單 업로드</button>
-      <input type="file" accept=".pdf,.PDF" data-dfile="${i}" hidden></div>
-      <div style="padding:10px 14px"><textarea data-dsi="${i}" rows="${Math.max(2,(s.dutySku||[]).length+1)}" style="width:100%;font-family:var(--mono);font-size:12px;padding:8px;border:1px solid var(--line);border-radius:8px;resize:vertical" placeholder="00011, 3000, 1051289">${txt}</textarea></div></div>`;
+    const hasReport=Array.isArray(s.dutySkuTwd)&&s.dutySkuTwd.length;
+    const dutyTwd=hasReport?s.dutySkuTwd.reduce((a,d)=>a+(+d.twd||0),0):0;
+    const skuList=hasReport?s.dutySkuTwd.map(d=>({code:d.code,krw:Math.round((+d.twd||0)*(+s.dutyFx||0))})):(s.dutySku||[]).map(d=>({code:d.code,krw:+d.duty||0}));
+    const dutyKrw=skuList.reduce((a,x)=>a+x.krw,0);
+    const hasDuty=hasReport||(s.dutySku||[]).length;
+    const perSku=skuList.filter(x=>x.krw>0).map(x=>`${x.code} <b>${x.krw.toLocaleString()}</b>원`).join(' · ');
+    const fxTxt=s.dutyFx?(s.dutyFx+(s.dutyFxAuto?' <span style="color:var(--ok)">자동</span>':'')):'—';
+    const status=[
+      hasReport?('進口報單 ✓ 관세 '+dutyTwd.toLocaleString()+' TWD'):(hasDuty?'報單 ✓ (기존입력)':'<span style="color:var(--amber)">進口報單 미업로드</span>'),
+      (+s.disbKrw)?('대납 ✓ '+(+s.disbKrw).toLocaleString()+'원'):'<span style="color:var(--amber)">대납 인보이스 미업로드</span>',
+      '환율 '+fxTxt
+    ].join('  ·  ');
+    return `<div class="pcard" data-dcard="${i}"><div class="phead" style="gap:8px">
+      <span class="code">${s.label||('차수 '+(i+1))}</span>
+      <span class="u" style="flex:1">進口報單 + 대납 인보이스를 올리면(끌어다 놓기 OK) SKU별 관세·환율 자동 (營業稅 제외)</span>
+      <label style="font-size:11px;color:var(--mut)">수동환율 <input class="mono" data-fxsi="${i}" style="width:54px;padding:4px 6px;border:1px solid var(--line);border-radius:6px" value="${s.dutyFxManual??''}" placeholder="47.1"></label>
+      <button class="btnxs" data-dupl="${i}">📄 관세 파일 업로드</button>
+      <input type="file" accept=".pdf,.PDF" multiple data-dfile="${i}" hidden></div>
+      <div style="padding:8px 14px;font-size:12px">
+        <div style="color:var(--mut)">${status}</div>
+        ${hasDuty&&dutyKrw?`<div style="margin-top:4px">SKU별 관세: ${perSku||'0'} <span style="color:var(--mut)">· 합계 ${dutyKrw.toLocaleString()}원</span></div>`:(hasReport?'<div style="margin-top:4px;color:var(--mut)">전 품목 관세율 0% (관세 없음)</div>':'')}
+      </div></div>`;
   }).join('')+'<div class="stats" id="costDutyPool"></div>';
-  el.querySelectorAll('textarea[data-dsi]').forEach(t=>t.addEventListener('input',e=>{const i=+e.target.dataset.dsi;r.shipments[i].dutySku=parseDutyLines(e.target.value);saveCost();costRecompute();}));
-  el.querySelectorAll('input[data-fxsi]').forEach(inp=>inp.addEventListener('input',e=>{r.shipments[+e.target.dataset.fxsi].dutyFx=e.target.value;saveCost();}));
+  el.querySelectorAll('input[data-fxsi]').forEach(inp=>inp.addEventListener('input',e=>{const i=+e.target.dataset.fxsi;r.shipments[i].dutyFxManual=e.target.value;recomputeShipmentDuty(r.shipments[i]);saveCost();renderDuty();costRecompute();}));
   el.querySelectorAll('[data-dupl]').forEach(b=>b.onclick=()=>{el.querySelector('input[data-dfile="'+b.dataset.dupl+'"]').click();});
-  el.querySelectorAll('input[data-dfile]').forEach(inp=>inp.addEventListener('change',async e=>{const i=+e.target.dataset.dfile;const f=e.target.files[0];e.target.value='';if(f)await handleDutyReport(i,f);}));
+  el.querySelectorAll('input[data-dfile]').forEach(inp=>inp.addEventListener('change',async e=>{const i=+e.target.dataset.dfile;const files=[...e.target.files];e.target.value='';for(const f of files)await handleDutyReport(i,f);}));
 }
 function renderCostTable(){
   const el=$('costItems');const disp=costDisplay();
@@ -1469,25 +1483,45 @@ async function parseDutyReport(data, codeOf){
     const nameTok=r.items.find(i=>i.x>=40&&i.x<160&&/[A-Za-z]/.test(i.s));const name=nameTok?nameTok.s.trim():'';
     const eaTok=r.items.find(i=>/^[\d,]+UNT$/i.test(i.s.trim()));const ea=eaTok?toNum(eaTok.s.replace(/UNT/i,'')):0;
     const cvTok=r.items.filter(i=>i.x>=470&&i.x<=510&&/^[\d,]+$/.test(i.s.trim()));const customs=cvTok.length?toNum(cvTok[0].s):0;
-    const rate=rateRowFor(r.y,r.page);lines.push({name,ea,dutyTwd:Math.round(customs*rate)});}
+    const rate=rateRowFor(r.y,r.page);lines.push({name,ea,customs,dutyTwd:Math.round(customs*rate)});}
   const bySku={};
   for(const l of lines){const code=codeOf(l.name)||'';const key=code||('?'+l.name);
     if(!bySku[key])bySku[key]={code,name:l.name,ea:0,dutyTwd:0};bySku[key].ea+=l.ea;bySku[key].dutyTwd+=l.dutyTwd;}
-  return {lines,bySku:Object.values(bySku)};
+  const customsTotal=lines.reduce((a,l)=>a+(+l.customs||0),0);
+  return {lines,bySku:Object.values(bySku),customsTotal};
 }
-async function handleDutyReport(i,file){
+// 대만 총 수입세액(TWD) 추정 = 關稅 + 推廣費(완세×0.04%) + 營業稅((완세+관세+추광)×5%) — 대납액÷이 값 = 환율
+function twTaxTotal(customsTotal,dutyTwd){const promo=Math.round(customsTotal*0.0004);const biz=Math.round((customsTotal+dutyTwd+promo)*0.05);return dutyTwd+promo+biz;}
+// 차수 관세를 재계산: 報單(TWD)×환율 → dutySku(KRW). 환율=대납액÷총세액(대납 있으면 자동), 없으면 수동/기본
+function recomputeShipmentDuty(s){
+  if(!Array.isArray(s.dutySkuTwd))return; // 구(舊) 방식 차수는 건드리지 않음
+  let fx,auto=false;
+  if(+s.disbKrw&&+s.reportTaxTwd){fx=(+s.disbKrw)/(+s.reportTaxTwd);auto=true;}
+  else fx=+s.dutyFxManual||47.1;
+  s.dutyFx=Math.round(fx*1000)/1000;s.dutyFxAuto=auto;
+  s.dutySku=s.dutySkuTwd.map(d=>({code:d.code,ea:d.ea,duty:Math.round((+d.twd||0)*fx)}));
+}
+async function handleDutyReport(i,file){ // 관세칸 업로드: 進口報單 또는 대납(disbursement) 자동 감지
   try{
     if(!window.pdfjsLib){toast('PDF 라이브러리 로드 실패 — 인터넷 확인');return;}
-    const r=costRoute();const s=r.shipments[i];const fx=+s.dutyFx||47.1;s.dutyFx=fx;
-    const buf=await file.arrayBuffer();
-    const res=await parseDutyReport(new Uint8Array(buf), name=>ciplMatch(name,''));
+    const r=costRoute();const s=r.shipments[i];const buf=await file.arrayBuffer();
+    const fr=await parseFreightPdf(new Uint8Array(buf.slice(0))); // 복사본(파싱 시 버퍼가 detach됨)
+    if(fr.isDisbursement){ // 대납 인보이스 → KRW 총세액 저장 → 환율 자동
+      s.disbKrw=fr.subtotal;recomputeShipmentDuty(s);saveCost();renderDuty();renderCostTable();
+      toast('대납 인보이스 반영: 세금총액 '+(fr.subtotal||0).toLocaleString()+'원'+(s.dutyFxAuto?(' · 환율 자동 '+s.dutyFx):' · 報單을 올리면 환율 자동계산'));return;
+    }
+    const res=await parseDutyReport(new Uint8Array(buf.slice(0)), name=>ciplMatch(name,''));
     if(!res.bySku.length){toast('報單에서 품목을 못 찾았어요: '+file.name);return;}
-    s.dutySku=res.bySku.map(x=>({code:x.code,ea:x.ea,duty:Math.round(x.dutyTwd*fx)}));
-    s.skus=[...new Set([...(s.skus||[]),...res.bySku.map(x=>x.code).filter(Boolean)])]; // 이 차수 선적품목에 반영
-    const twd=res.bySku.reduce((a,b)=>a+b.dutyTwd,0);const unmatched=res.bySku.filter(x=>!x.code).length;
-    saveCost();renderDuty();renderCostTable();
-    toast('報單 반영: 관세 '+twd.toLocaleString()+' TWD × '+fx+' = '+Math.round(twd*fx).toLocaleString()+'원 (營業稅 제외)'+(unmatched?(' · 미매칭 '+unmatched+'건 품번 확인'):''));
-  }catch(err){console.error(err);toast('報單 파싱 오류: '+(err.message||err));}
+    s.dutySkuTwd=res.bySku.map(x=>({code:x.code,ea:x.ea,twd:x.dutyTwd}));
+    const dutyTwd=res.bySku.reduce((a,b)=>a+b.dutyTwd,0);
+    s.reportCustomsTwd=res.customsTotal;s.reportTaxTwd=twTaxTotal(res.customsTotal,dutyTwd);
+    s.skus=[...new Set([...(s.skus||[]),...res.bySku.map(x=>x.code).filter(Boolean)])];
+    recomputeShipmentDuty(s);saveCost();renderDuty();renderCostTable();
+    const unmatched=res.bySku.filter(x=>!x.code).length;
+    const fxMsg=s.dutyFxAuto?(' · 환율 자동 '+s.dutyFx+' → '+Math.round(dutyTwd*s.dutyFx).toLocaleString()+'원'):' · 대납 인보이스 올리면 환율 자동';
+    const umMsg=unmatched?(' · 미매칭 '+unmatched+'건'):'';
+    toast('報單 반영: 관세 '+dutyTwd.toLocaleString()+' TWD (營業稅 제외)'+fxMsg+umMsg);
+  }catch(err){console.error(err);toast('관세 파일 파싱 오류: '+(err.message||err));}
 }
 function costExport(){
   const c=costCompute();const r=costRoute();const std=c.std;const rd=n=>n==null?'':Math.round(n);
