@@ -309,6 +309,8 @@ td.hsin input.blank{background:var(--amberbg)}
       <div class="fld"><label>ITEM</label><input id="f-item"></div>
     </div>
     <div class="bar">
+      <button class="btn pri" id="palletImport">PL 파일 가져오기</button>
+      <input type="file" id="palletFile" accept=".xlsx,.xls" hidden>
       <button class="btn pri" id="palletAdd">+ 팔레트 추가</button>
       <button class="btn" id="palletPrint">인쇄 / PDF</button>
       <button class="btn pri" id="palletSaveBatch">📁 차수에 저장</button>
@@ -493,7 +495,7 @@ const DEF_COUNTRIES=[{code:'TW',label:'대만(TW)'},{code:'HK',label:'홍콩(HK)
 const TW_FIX={};
 // 상품정보고시/CIPL 기준 중문 주명 + 영문명 교정 (빈값 또는 이전 추정값일 때만 덮어씀)
 const NAME_FIX={};
-const APP_VER='2026-09-07-a';
+const APP_VER='2026-09-14-a';
 (function(){try{var u=new URL(location.href);
   fetch(location.pathname+'?_ck='+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
     var m=t.match(/APP_VER='([^']+)'/);
@@ -1038,7 +1040,7 @@ function updatePalletTot(){const t=$('palletTot');if(t)t.textContent=state.palle
 function addPallet(){state.pallets.push({weight:''});renderPalletCfg();renderPalletMarks();}
 function renderPalletCfg(){
   const el=$('palletCfg');
-  if(!state.pallets.length){el.innerHTML='<div class="emptybox">+ 팔레트 추가로 팔레트를 등록하세요.</div>';updatePalletTot();return;}
+  if(!state.pallets.length){el.innerHTML='<div class="emptybox">「PL 파일 가져오기」로 팔레트·무게를 자동 생성하거나, + 팔레트 추가로 직접 등록하세요.</div>';updatePalletTot();return;}
   const rows=state.pallets.map((p,i)=>`<tr>
     <td class="code" style="text-align:center">${(i+1)} / ${state.pallets.length}</td>
     <td><input class="mono" style="width:120px" type="number" min="0" step="0.01" data-pi="${i}" value="${p.weight}" placeholder="429"> <span style="color:var(--mut);font-size:12px">KG</span></td>
@@ -1069,6 +1071,40 @@ function renderPalletMarks(){
   el.innerHTML=state.pallets.map((p,i)=>markCard(h,i+1,total,p.weight)).join('');
 }
 function renderPallet(){renderPalletCfg();renderPalletMarks();batchTouch();}
+// PL 파일에서 수출자/수하인 회사명 추출 (팔레트 헤더 자동 채움용)
+function palletHeaderFromBuf(buf){
+  try{
+    const wb=XLSX.read(buf,{type:'array',cellDates:true});
+    let ws=wb.Sheets['PL']||wb.Sheets['pl'];
+    if(!ws){const nm=wb.SheetNames.find(n=>/pl|packing/i.test(n));ws=wb.Sheets[nm]||wb.Sheets[wb.SheetNames[0]];}
+    const raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',blankrows:false});
+    const norm=c=>String(c==null?'':c).replace(/\s+/g,' ').trim();
+    const flat=raw.map(r=>r.map(norm));
+    const cut=s=>s.split(/\s+(?:Address|Name|Mobile|Tel|Phone|Fax|E-?mail|Attn)\s*:/i)[0].trim();
+    function companyAfter(re){for(let i=0;i<flat.length;i++){if(flat[i].some(c=>re.test(c))){for(let j=i;j<Math.min(i+4,flat.length);j++){const cell=flat[j].find(c=>/^company\s*:/i.test(c));if(cell)return cut(cell.replace(/^company\s*:\s*/i,''));}}}return '';}
+    return {consignor:companyAfter(/shipper|exporter/i),consignee:companyAfter(/consignee|importer/i)};
+  }catch(e){return {consignor:'',consignee:''};}
+}
+// PL 파일 → 팔레트 쉬핑마크 자동 생성. 팔레트 No별 Gross weight를 읽어 팔레트 목록 구성, 수출자/수하인도 자동 채움. 이후 수기 수정 가능.
+function palletImportPL(file){
+  const rd=new FileReader();
+  rd.onload=e=>{try{
+    const items=plParse(e.target.result);
+    const byPlt=new Map();
+    items.forEach(it=>{const plt=String(it.plt||'').trim();if(!plt||!it.descEn)return;const gw=+it.gw||0;if(!byPlt.has(plt))byPlt.set(plt,0);if(gw>byPlt.get(plt))byPlt.set(plt,gw);});
+    const arr=[...byPlt.values()].map(w=>({weight:w?String(w):''}));
+    if(!arr.length){toast('PL에서 팔레트 정보를 찾지 못했습니다 (PALLET No·Gross weight 확인)');return;}
+    const hasData=state.pallets.some(p=>p.weight!=='')||state.pallets.length>1;
+    if(hasData&&!confirm('현재 팔레트 목록을 이 PL 파일 내용으로 교체할까요?'))return;
+    const hdr=palletHeaderFromBuf(e.target.result);
+    if(hdr.consignor)state.pallet.consignor=hdr.consignor;
+    if(hdr.consignee)state.pallet.consignee=hdr.consignee;
+    state.pallets=arr;
+    fillPalletHeaderInputs();renderPallet();
+    const miss=arr.filter(p=>p.weight==='').length;
+    toast('팔레트 '+arr.length+'개 가져옴 · 총 '+palletTotalW().toLocaleString()+'KG'+(miss?(' · 무게미상 '+miss+'개'):''));
+  }catch(err){console.error(err);toast('파싱 오류: '+err.message);}};
+  rd.readAsArrayBuffer(file);}
 
 /* CIPL (Commercial Invoice + Packing List) */
 function esc(s){return String(s==null?'':s);}
@@ -1598,6 +1634,8 @@ $('boxClear').onclick=()=>{if(state.boxItems.length&&confirm('추가한 상품�
 ['consignor','consignee','po','item'].forEach(k=>$('f-'+k).addEventListener('input',e=>{state.pallet[k]=e.target.value;renderPalletMarks();}));
 document.querySelectorAll('.presets [data-cons]').forEach(b=>b.onclick=()=>{$('f-consignee').value=b.dataset.cons;state.pallet.consignee=b.dataset.cons;renderPalletMarks();});document.querySelectorAll('.presets [data-po]').forEach(b=>b.onclick=()=>{$('f-po').value=b.dataset.po;state.pallet.po=b.dataset.po;renderPalletMarks();});
 $('palletAdd').onclick=addPallet;
+$('palletImport').onclick=()=>$('palletFile').click();
+$('palletFile').onchange=e=>{if(e.target.files[0])palletImportPL(e.target.files[0]);e.target.value='';};
 $('palletClear').onclick=()=>{if(state.pallets.length&&confirm('팔레트를 모두 비울까요?')){state.pallets=[];renderPallet();}};
 $('palletPrint').onclick=()=>{if(!state.pallets.length){toast('추가된 팔레트가 없습니다');return;}
   let st=document.getElementById('printoff');if(!st){st=document.createElement('style');st.id='printoff';document.head.appendChild(st);}
