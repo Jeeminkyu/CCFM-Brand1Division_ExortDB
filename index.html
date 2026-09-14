@@ -495,7 +495,7 @@ const DEF_COUNTRIES=[{code:'TW',label:'대만(TW)'},{code:'HK',label:'홍콩(HK)
 const TW_FIX={};
 // 상품정보고시/CIPL 기준 중문 주명 + 영문명 교정 (빈값 또는 이전 추정값일 때만 덮어씀)
 const NAME_FIX={};
-const APP_VER='2026-09-14-a';
+const APP_VER='2026-09-14-b';
 (function(){try{var u=new URL(location.href);
   fetch(location.pathname+'?_ck='+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
     var m=t.match(/APP_VER='([^']+)'/);
@@ -1082,8 +1082,14 @@ function palletHeaderFromBuf(buf){
     const flat=raw.map(r=>r.map(norm));
     const cut=s=>s.split(/\s+(?:Address|Name|Mobile|Tel|Phone|Fax|E-?mail|Attn)\s*:/i)[0].trim();
     function companyAfter(re){for(let i=0;i<flat.length;i++){if(flat[i].some(c=>re.test(c))){for(let j=i;j<Math.min(i+4,flat.length);j++){const cell=flat[j].find(c=>/^company\s*:/i.test(c));if(cell)return cut(cell.replace(/^company\s*:\s*/i,''));}}}return '';}
-    return {consignor:companyAfter(/shipper|exporter/i),consignee:companyAfter(/consignee|importer/i)};
-  }catch(e){return {consignor:'',consignee:''};}
+    const consignor=companyAfter(/shipper|exporter/i),consignee=companyAfter(/consignee|importer/i);
+    // 도착국 → 국가코드 (대만 886 / 홍콩 852). 차수번호는 호출부에서 결합.
+    const blob=flat.map(r=>r.join(' ')).join(' ');
+    let poCountry='';
+    if(/taiwan|臺灣|台灣|대만/i.test(blob)||/gaozhi/i.test(consignee))poCountry='886';
+    else if(/hong\s*kong|香港|홍콩/i.test(blob)||/melable\s*hk/i.test(consignee))poCountry='852';
+    return {consignor,consignee,poCountry};
+  }catch(e){return {consignor:'',consignee:'',poCountry:''};}
 }
 // PL 파일 → 팔레트 쉬핑마크 자동 생성. 팔레트 No별 Gross weight를 읽어 팔레트 목록 구성, 수출자/수하인도 자동 채움. 이후 수기 수정 가능.
 function palletImportPL(file){
@@ -1099,10 +1105,18 @@ function palletImportPL(file){
     const hdr=palletHeaderFromBuf(e.target.result);
     if(hdr.consignor)state.pallet.consignor=hdr.consignor;
     if(hdr.consignee)state.pallet.consignee=hdr.consignee;
+    // P/O = PO_<도착국코드>_<차수번호3자리>. 차수번호는 현재 열린 차수 이름(예: "대만 4차")에서 추출, 없으면 001
+    let poNote='';
+    if(hdr.poCountry){
+      const m=((activeBatch&&activeBatch.name)||'').match(/(\d+)\s*차/);
+      const seq=m?String(m[1]).padStart(3,'0'):'001';
+      state.pallet.po='PO_'+hdr.poCountry+'_'+seq;
+      if(!m)poNote=' · PO 차수번호는 001로 지정(차수 열고 재가져오면 자동)';
+    }
     state.pallets=arr;
     fillPalletHeaderInputs();renderPallet();
     const miss=arr.filter(p=>p.weight==='').length;
-    toast('팔레트 '+arr.length+'개 가져옴 · 총 '+palletTotalW().toLocaleString()+'KG'+(miss?(' · 무게미상 '+miss+'개'):''));
+    toast('팔레트 '+arr.length+'개 가져옴 · 총 '+palletTotalW().toLocaleString()+'KG'+(miss?(' · 무게미상 '+miss+'개'):'')+poNote);
   }catch(err){console.error(err);toast('파싱 오류: '+err.message);}};
   rd.readAsArrayBuffer(file);}
 
