@@ -378,6 +378,8 @@ td.hsin input.blank{background:var(--amberbg)}
     <h3 style="font-size:13px;color:var(--ink2);margin:16px 0 8px;font-weight:600">③ SKU별 표준 착지원가 <span style="font-weight:400;color:var(--mut)">— 업로드한 차수의 선적품목이 자동 표시 (더 보려면 검색 추가)</span></h3>
     <div class="bar" style="margin-top:2px">
       <div class="grow"><input class="search" id="k-q" placeholder="품번·품명으로 SKU 추가(선택)"></div>
+      <button class="btn pri" id="k-skuImport">📄 PL/CIPL 품목 가져오기</button>
+      <input type="file" id="k-skuFile" accept=".xlsx,.xls" hidden>
     </div>
     <div class="pickrow" id="costPick"></div>
     <div id="costItems"></div>
@@ -495,7 +497,7 @@ const DEF_COUNTRIES=[{code:'TW',label:'대만(TW)'},{code:'HK',label:'홍콩(HK)
 const TW_FIX={};
 // 상품정보고시/CIPL 기준 중문 주명 + 영문명 교정 (빈값 또는 이전 추정값일 때만 덮어씀)
 const NAME_FIX={};
-const APP_VER='2026-09-14-b';
+const APP_VER='2026-10-06-a';
 (function(){try{var u=new URL(location.href);
   fetch(location.pathname+'?_ck='+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(t){
     var m=t.match(/APP_VER='([^']+)'/);
@@ -1468,6 +1470,36 @@ function costPickRender(){
   el.querySelectorAll('[data-addk]').forEach(b=>b.onclick=()=>{addCostItem(b.dataset.addk);state.cost.q='';$('k-q').value='';costPickRender();});
 }
 function addCostItem(code){code=padCode(code);if(costDisplay().some(d=>d.code===code))return;costItems().push({code});saveCostItems();renderCostTable();}
+// PL/CIPL 파일의 PRODUCT CODE 열을 읽어 품번 목록 추출 (운임 인보이스 GOODS보다 정확)
+function plCodesFromBuf(buf){
+  const wb=XLSX.read(buf,{type:'array',cellDates:true});
+  let ws=wb.Sheets['PL']||wb.Sheets['pl'];
+  if(!ws){const nm=wb.SheetNames.find(n=>/pl|packing/i.test(n));ws=wb.Sheets[nm]||wb.Sheets[wb.SheetNames[0]];}
+  const raw=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',blankrows:false});
+  const norm=c=>String(c==null?'':c).replace(/\s+/g,' ').trim();
+  let hr=raw.findIndex(r=>r.map(norm).some(c=>/product\s*code/i.test(c)));
+  if(hr<0)throw new Error('PRODUCT CODE 열을 찾지 못했습니다 (PL 시트 확인)');
+  const H=raw[hr].map(norm);
+  const cc=H.findIndex(h=>/product\s*code/i.test(h));
+  const plt=H.findIndex(h=>/pallet/i.test(h));
+  const out=[];
+  for(let i=hr+1;i<raw.length;i++){const r=raw[i];const pv=plt>=0?norm(r[plt]):'';
+    if(/total/i.test(pv)||/pallet\s*size|end of the page/i.test(pv))break;
+    const cv=norm(r[cc]);if(!cv)continue;
+    const code=padCode(cv);if(code)out.push(code);}
+  return [...new Set(out)];
+}
+function costImportSkus(file){
+  const rd=new FileReader();
+  rd.onload=e=>{try{
+    const codes=plCodesFromBuf(e.target.result);
+    if(!codes.length){toast('PL에서 품번을 찾지 못했습니다');return;}
+    const shown=new Set(costDisplay().map(d=>d.code));
+    let added=0;codes.forEach(c=>{if(!shown.has(c)){costItems().push({code:c});shown.add(c);added++;}});
+    saveCostItems();renderCostTable();
+    toast('품목 '+codes.length+'개 중 '+added+'개 추가'+(added<codes.length?(' · 이미표시 '+(codes.length-added)+'개'):''));
+  }catch(err){console.error(err);toast('파싱 오류: '+err.message);}};
+  rd.readAsArrayBuffer(file);}
 function renderCost(){renderLedger();renderDuty();renderCostTable();}
 function costSyncUI(){
   $('k-route').value=COST.route;
@@ -1497,6 +1529,8 @@ function costInit(){
     else{for(const f of files)await handleFreightFile(f);}
   });
   $('k-q').addEventListener('input',e=>{state.cost.q=e.target.value;costPickRender();});
+  $('k-skuImport').onclick=()=>$('k-skuFile').click();
+  $('k-skuFile').onchange=e=>{if(e.target.files[0])costImportSkus(e.target.files[0]);e.target.value='';};
   $('k-xlsx').onclick=costExport;
 }
 async function parseFreightPdf(data){
